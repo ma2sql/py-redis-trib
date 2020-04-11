@@ -3,38 +3,18 @@ import types
 
 CLUSTER_HASH_SLOTS = 16384
 
-class RedisInfo:
-    def __init__(self):
-        self._slots = {}
 
-    def _parse_slots(self, slots):
-        migrating = {}
-        importing = {}
-        parsed_slots = []
-        for s in slots:
-            # ["[5461", ">", "b35b55daf26e84acdf17fed30d46ca97ccdd9169]"]
-            if len(s) == 3:
-                slot, direction, target = s
-                slot = int(slot[1:])
-                target = target[:-1]
-                if direction == '>':
-                    migrating[slot] = target
-                elif direction == '<':
-                    importing[slot] = target
-            # ["0", "5460"]
-            elif len(s) == 2:
-                start = int(s[0])
-                end = int(s[1]) + 1
-                parsed_slots += list(range(start, end))
-            # ["5462"]
-            else:
-                parsed_slots.append(int(s[0]))
+# TODO: Create a print function that support VERBOSE mode
+def print_verbose(*args, **kwargs):
+    print(*args, **kwargs)
 
-        return parsed_slots, migrating, importing
+
+class ClusterNodeException(Exception): pass
+class CannotConnectToRedis(ClusterNodeException): pass
 
 
 class ClusterNode:
-    def __init__(self, addr):
+    def __init__(self, addr, password=None):
         s = addr.split('@')[0].split(':')
         if len(s) < 2:
             print(f"Invalid IP or Port (given as {addr}) - use IP:Port format")
@@ -42,6 +22,7 @@ class ClusterNode:
         
         self._host = ':'.join(s[:-1])
         self._port = s[-1]
+        self._password = password
         self._slots = {}
         self._migrating = []
         self._importing = []
@@ -73,12 +54,21 @@ class ClusterNode:
     def slots(self):
         return self._slots
 
-    def connect(self):
+    def connect(self, abort=False):
+        if self._r:
+            return
+        print_verbose(f"Connecting to node {self}: ", end="")
         try:
-            self._r = redis.StrictRedis()
+            self._r = redis.StrictRedis(self.host, self.port,
+                                        password=self._password,
+                                        timeout=60)
             self._r.ping()
         except redis.exceptions.ConnectionError:
-            raise
+            print_verbose(f"[ERR] Sorry, can't connect to node '{self}'")
+            if abort:
+                raise CannotConnectToRedis(f"[ERR] Sorry, can't connect to node '{self}'")
+            self._r = None
+        print_verbose("OK")
 
     def assert_cluster(self):
         cluster_enabled = self._r.info().get('cluster_enabled') or 0
@@ -100,8 +90,11 @@ class ClusterNode:
                 self._node_id = n['node_id']
                 self._flags = flags
                 self._replicate = n['master_id'] != '-' and n['master_id']
-                self._parse_slots(n['slots'])
-                self._dirty = True
+                (self._slots,
+                 self._migrating,
+                 self._importing
+                ) = self._parse_slots(n['slots'])
+                self._dirty = False
                 break
 
     def _parse_flags(self, flags):
@@ -121,6 +114,9 @@ class ClusterNode:
                 yield addr, flags
 
     def _parse_slots(self, slots):
+        parsed_slots = []
+        migrating = {}
+        importing = {}
         for s in slots:
             # ["[5461", ">", "b35b55daf26e84acdf17fed30d46ca97ccdd9169]"]
             if len(s) == 3:
@@ -128,17 +124,20 @@ class ClusterNode:
                 slot = int(slot[1:])
                 target = target[:-1]
                 if direction == '>':
-                    self._migrating[slot] = target
+                    migrating[slot] = target
                 elif direction == '<':
-                    self._importing[slot] = target
+                    importing[slot] = target
             # ["0", "5460"]
             elif len(s) == 2:
                 start = int(s[0])
                 end = int(s[1]) + 1
-                self.add_slots(list(range(start, end)))
+                parsed_slots += list(range(start, end))
             # ["5462"]
             else:
-                self.add_slots(int(s[0]))
+                parsed_slots += [int(s[0])]
+
+        return parsed_slots, migrating, importing
+
 
     def add_slots(self, slots):
         if isinstance(slots, (list, tuple, range)):
@@ -155,7 +154,21 @@ class ClusterNode:
         self._master = master
 
     def flush_node_config(self):
-        pass
+        if not self._dirty: return
+
+        if self._replicate:
+            try:
+                self._r.cluster("REPLICATE", self._replicate)
+            except redis.exceptions.ResponseError:
+                pass
+        else:
+            _slots = {s: True for s, assigned in self._slots.items()
+                              if not assigned}
+            self._slots.update(_slots)
+            self._r.cluster("ADDSLOTS", *_slots.keys())
+
+        self._dirty = False
+            
 
     def assign_config_epoch(self, config_epoch):
         pass
