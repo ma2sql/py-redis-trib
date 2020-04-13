@@ -27,6 +27,7 @@ class ClusterNode:
         self._migrating = []
         self._importing = []
         self._replicate = None
+        self._replicas = []
         self._dirty = False
         self._r = None
         self._friends = []
@@ -90,10 +91,10 @@ class ClusterNode:
                 self._node_id = n['node_id']
                 self._flags = flags
                 self._replicate = n['master_id'] != '-' and n['master_id']
-                (self._slots,
-                 self._migrating,
-                 self._importing
-                ) = self._parse_slots(n['slots'])
+                (slots, migrating, importing) = self._parse_slots(n['slots'])
+                self.add_slots(slots)
+                self._migrating = migrating
+                self._importing = importing
                 self._dirty = False
                 break
 
@@ -168,7 +169,45 @@ class ClusterNode:
             self._r.cluster("ADDSLOTS", *_slots.keys())
 
         self._dirty = False
-            
+           
+    def _summarize_slots(self, slots):
+        _temp_slots = []
+        for slot in sorted(slots):
+            if not _temp_slots or _temp_slots[-1][-1] != (slot-1): 
+                _temp_slots.append([])
+            _temp_slots[-1][1:] = [slot]
+        return ','.join(map(lambda slot_exp: '-'.join(map(str, slot_exp)), _temp_slots)) 
+   
+    '''
+            if self.info[:replicate] and @dirty
+            is = "S: #{self.info[:name]} #{self.to_s}"
+        else
+            is = "#{role}: #{self.info[:name]} #{self.to_s}\n"+
+            "   slots:#{slots} (#{self.slots.length} slots) "+
+            "#{(self.info[:flags]-["myself"]).join(",")}"
+        end
+        if self.info[:replicate]
+            is += "\n   replicates #{info[:replicate]}"
+        elsif self.has_flag?("master") && self.info[:replicas]
+            is += "\n   #{info[:replicas].length} additional replica(s)"
+        end
+        is 
+    ''' 
+    def info_string(self):
+        role = "M" if "master" in self._flags else "S" 
+        info_str = ""
+        if self._replicate and self._dirty:
+            info_str = f"S: {self._replicate} {self}"
+        else:
+            info_str = f"{role}: {self._node_id} {self}\n"\
+                       f"   slots:{self._summarize_slots(self._slots)} ({len(self._slots)}) "\
+                       f"{','.join(filter(lambda flag: flag != 'myself', self._flags))}"
+        if self._replicate:
+            info_str += "\n    replicates {self._replicate}"
+        elif "master" in self._flags and self._replicas:
+            info_str += "\n    {len(self._replicas)} additional replica(s)"
+        
+        return info_str
 
     def assign_config_epoch(self, config_epoch):
         pass

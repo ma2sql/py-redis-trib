@@ -104,7 +104,7 @@ class TestClusterNode(unittest.TestCase):
         with patch.object(node, '_r', fake_redis(**mock_config)):
             node.load_info()
             self.assertEqual(node._node_id, "f56836b56b1ebc5d1fe2c2aeee93a86e662d8d2c")
-            self.assertListEqual(node._slots, list(range(5461, 11264+1)))
+            self.assertDictEqual(node._slots, {k: False for k in range(5461, 11264+1)})
 
     def testClusterNodes(self):
         node = ClusterNode(self._addr)
@@ -150,7 +150,16 @@ class TestClusterNode(unittest.TestCase):
             node._dirty = True
             node.flush_node_config()
             _r.cluster.assert_called_with("ADDSLOTS", *list(range(5461, 11265)))
-             
+     
+    def test_summarize_slots(self):
+        node = ClusterNode(self._addr)
+        mock_config = {'cluster.return_value': self._cluster_nodes}
+        with patch.object(node, '_r', fake_redis(**mock_config)):
+            node.load_info()
+        print(node.info_string()) 
+        self.assertEqual(node._summarize_slots(range(0,10)), '0-9')        
+        self.assertEqual(node._summarize_slots(list(range(0,10)) + list(range(20,31))), '0-9,20-30')        
+        self.assertEqual(node._summarize_slots(list(range(0,10)) + list(range(20,31)) + [100]), '0-9,20-30,100')        
 
     def tearDown(self):
         pass
