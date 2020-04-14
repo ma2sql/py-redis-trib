@@ -156,10 +156,18 @@ class TestClusterNode(unittest.TestCase):
         mock_config = {'cluster.return_value': self._cluster_nodes}
         with patch.object(node, '_r', fake_redis(**mock_config)):
             node.load_info()
-        print(node.info_string()) 
         self.assertEqual(node._summarize_slots(range(0,10)), '0-9')        
         self.assertEqual(node._summarize_slots(list(range(0,10)) + list(range(20,31))), '0-9,20-30')        
         self.assertEqual(node._summarize_slots(list(range(0,10)) + list(range(20,31)) + [100]), '0-9,20-30,100')        
+    def test_info_string(self):
+        node = ClusterNode(self._addr)
+        mock_config = {'cluster.return_value': self._cluster_nodes}
+        with patch.object(node, '_r', fake_redis(**mock_config)):
+            node.load_info()
+            self.assertEqual(node.info_string(),
+                """M: f56836b56b1ebc5d1fe2c2aeee93a86e662d8d2c 192.168.56.101:7001\n"""\
+                """    slots:5461-11264 (5804) master""") 
+            print(node.get_config_signature())
 
     def tearDown(self):
         pass

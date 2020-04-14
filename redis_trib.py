@@ -178,21 +178,6 @@ class ClusterNode:
             _temp_slots[-1][1:] = [slot]
         return ','.join(map(lambda slot_exp: '-'.join(map(str, slot_exp)), _temp_slots)) 
    
-    '''
-            if self.info[:replicate] and @dirty
-            is = "S: #{self.info[:name]} #{self.to_s}"
-        else
-            is = "#{role}: #{self.info[:name]} #{self.to_s}\n"+
-            "   slots:#{slots} (#{self.slots.length} slots) "+
-            "#{(self.info[:flags]-["myself"]).join(",")}"
-        end
-        if self.info[:replicate]
-            is += "\n   replicates #{info[:replicate]}"
-        elsif self.has_flag?("master") && self.info[:replicas]
-            is += "\n   #{info[:replicas].length} additional replica(s)"
-        end
-        is 
-    ''' 
     def info_string(self):
         role = "M" if "master" in self._flags else "S" 
         info_str = ""
@@ -200,7 +185,7 @@ class ClusterNode:
             info_str = f"S: {self._replicate} {self}"
         else:
             info_str = f"{role}: {self._node_id} {self}\n"\
-                       f"   slots:{self._summarize_slots(self._slots)} ({len(self._slots)}) "\
+                       f"    slots:{self._summarize_slots(self._slots)} ({len(self._slots)}) "\
                        f"{','.join(filter(lambda flag: flag != 'myself', self._flags))}"
         if self._replicate:
             info_str += "\n    replicates {self._replicate}"
@@ -216,7 +201,17 @@ class ClusterNode:
         pass
 
     def get_config_signature(self):
-        pass
+        # Return a single string representing nodes and associated slots.
+        # TODO: remove slaves from config when slaves will be handled
+        # by Redis Cluster.
+        config = []
+        for n in self.cluster_nodes.values():
+            slots, *_ = self._parse_slots(n['slots'])
+            if 'master' not in self._parse_flags(n['flags']):
+                continue
+            config.append(f"{n['node_id']}:{self._summarize_slots(slots)}")
+        return '|'.join(sorted(config))
+
 
 class ClusterNodeError(Exception): pass
 class AssertClusterError(ClusterNodeError): pass
