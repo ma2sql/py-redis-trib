@@ -1,6 +1,12 @@
 import redis
 import types
-
+import collections
+from itertools import (
+    zip_longest, chain
+)
+from more_itertools import (
+    locate
+)
 CLUSTER_HASH_SLOTS = 16384
 
 
@@ -284,4 +290,98 @@ class RedisTrib:
             n.get_config_signature()
 
     def _wait_cluster_join(self):
-        pass 
+        pass
+
+
+class CreateClusterStrategy:
+    def __init__(self, nodes, replicas):
+        self._nodes = nodes
+        self._replicas = replicas
+        self._masters_count = int(len(self._nodes) / (self._replicas+1))
+        self._ips = collections.defaultdict(list)
+        self._interleaved = []
+
+    def split_instances_by_ip(self):
+        for n in self._nodes:
+            self._ips[n.host].append(n)
+        return self
+
+    def interleaved_nodes(self):
+        interleaved = list(chain(*zip_longest(*ips.values())))
+        self._masters = interleaved[:self._masters_count]
+        # Rotating the list sometimes helps to get better initial
+        # anti-affinity before the optimizer runs.
+        self._interleaved = interleaved[self._master_count:-1] + interleaved[-1:]
+        return self
+
+    def _alloc_slots(self):
+        slots_per_node = float(CLUSTER_HASH_SLOTS) / len(self._masters)
+        first = 0
+        cursor = 0.0
+        for i, m in enumerate(self._masters):
+            last = round(cursor + slots_per_node - 1)
+            if last > CLUSTER_HASH_SLOTS or i == len(self._masters) - 1:
+                last = CLUSTER_HASH_SLOTS - 1
+            if last < first:
+                last = first
+            m.add_slots(list(range(first, last+1)))
+            first = last+1
+            cursor += slots_per_node
+        return self
+
+    def _set_replicas_every_master(self): 
+        # Select N replicas for every master.
+        # We try to split the replicas among all the IPs with spare nodes
+        # trying to avoid the host where the master is running, if possible.
+        #
+        # Note we loop two times.  The first loop assigns the requested
+        # number of replicas to each master.  The second loop assigns any
+        # remaining instances as extra replicas to masters.  Some masters
+        # may end up with more than their requested number of replicas, but
+        # all nodes will be used.
+        assignment_verbose = True
+
+        REQUESTED = 'REQUESTED'
+        UNUSED = 'UNUSED'
+
+        for assign in [REQUESTED, UNUSED]:
+            for m in self._masters:
+                assigned_replicas = 0
+                for _ in range(self._replicas):
+                    if len(self._interleaved) == 0:
+                        break
+
+                    if assignment_verbose:
+                        if assign == REQUESTED:
+                            print(f"Requesting total of {self._replicas} replicas "\
+                                  f"({self._assigned_replicas} replicas assigned "\
+                                  f"so far with {len(self._interleaved)} total remaining).")
+                        elif assign == UNUSED:
+                            print(f"Assigning extra instance to replication "\
+                                  f"role too ({len(self._interleaved)} remaining).")
+
+                    # Return the first node not matching our current master
+                    node = first_true(self._interleaved, pred=lambda n: n.host != m.host)
+
+                    # If we found a node, use it as a best-first match.
+                    # Otherwise, we didn't find a node on a different IP, so we
+                    # go ahead and use a same-IP replica.
+                    if node:
+                        slave = node
+                        self._interleaved = list(filter(lambda n: node != n, self._interleaved))
+                    else
+                        slave = self._interleaved.pop(0)
+
+                    slave.set_as_replica(m.node_id)
+                    assigned_replicas += 1
+                    print(f"Adding replica {slave} to {m}")
+
+                    # If we are in the "assign extra nodes" loop,
+                    # we want to assign one extra replica to each
+                    # master before repeating masters.
+                    # This break lets us assign extra replicas to masters
+                    # in a round-robin way.
+                    if assign == UNUSED:
+                        break
+
+

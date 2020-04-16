@@ -100,8 +100,6 @@ class TestCreateCluster(unittest.TestCase):
         with patch.object(ClusterNode, 'get_config_signature') as f:
             redis_trib._is_config_consistent()
             self.assertEqual(f.call_count, len(redis_trib._nodes))
-            
-
 
     def tearDown(self):
         pass
