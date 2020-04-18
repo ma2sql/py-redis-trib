@@ -2,11 +2,15 @@ import redis
 import types
 import collections
 from itertools import (
-    zip_longest, chain
+    zip_longest, chain, groupby
 )
 from more_itertools import (
     locate
 )
+from abc import ABC, abstractmethod
+import random
+
+
 CLUSTER_HASH_SLOTS = 16384
 
 
@@ -20,7 +24,7 @@ class CannotConnectToRedis(ClusterNodeException): pass
 
 
 class ClusterNode:
-    def __init__(self, addr, password=None):
+    def __init__(self, addr, master_addr=None, password=None):
         s = addr.split('@')[0].split(':')
         if len(s) < 2:
             print(f"Invalid IP or Port (given as {addr}) - use IP:Port format")
@@ -29,6 +33,8 @@ class ClusterNode:
         self._host = ':'.join(s[:-1])
         self._port = s[-1]
         self._password = password
+        self._master_addr = master_addr
+        self._node_id = None
         self._slots = {}
         self._migrating = []
         self._importing = []
@@ -58,8 +64,16 @@ class ClusterNode:
         return f"{self.host}:{self.port}"
 
     @property
+    def node_id(self):
+        return self._node_id
+
+    @property
     def slots(self):
         return self._slots
+
+    @property
+    def master_addr(self):
+        return self._master_addr
 
     def connect(self, abort=False):
         if self._r:
@@ -292,6 +306,65 @@ class RedisTrib:
     def _wait_cluster_join(self):
         pass
 
+    def create_node(self, addr, master_addr=None, password=None):
+        node = ClusterNode(addr, master_addr, password)
+        node.connect(abort=True)
+        node.asset_cluster()
+        node.load_info()
+        node.assert_empty()
+        return node 
+
+    
+
+def group_by(iterable, key):
+    return {k: list(v) for k, v in groupby(sorted(iterable, key=key), key=key)}
+
+
+
+class CreateCluster(ABC):
+    def __init__(self, nodes, replicas=None):
+        self._nodes = nodes
+        self._replicas = replicas
+
+    @abstractmethod
+    def divide_masters_and_slaves(self):
+        pass
+
+    def get_anti_affinity_score(self):
+        score = 0
+        # List of offending slaves to return to the caller
+        offending = []
+        # First, split nodes by host
+        host_to_node = group_by(self._nodes, key=lambda n: n.host)
+
+        # Then, for each set of nodes in the same host, split by
+        # related nodes (masters and slaves which are involved in
+        # replication of each other)
+        for host, nodes in host_to_node.items():
+            related = collections.defaultdict(list)
+            for n in nodes:
+                role = 'x' if n.replicate else 'm'
+                related[n.node_id].append(role)
+
+            # Now it's trivial to check, for each related group having the
+            # same host, what is their local score.
+            for node_id, types in related.items():
+                if len(types) < 2:
+                    continue
+                # Make sure :m if the first if any
+                sorted_types = sorted(types)
+                if sorted_types[0] == 'm':
+                    score += 10000 * (len(types) -1)
+                else:
+                    score += 1 * len(types)
+
+                # Populate the list of offending node
+                for n in nodes:
+                    if n.replicate == node_id and n.host == host:
+                        offending.append(n)
+        
+        return score, offending
+
 
 class CreateClusterStrategy:
     def __init__(self, nodes, replicas):
@@ -300,6 +373,7 @@ class CreateClusterStrategy:
         self._masters_count = int(len(self._nodes) / (self._replicas+1))
         self._ips = collections.defaultdict(list)
         self._interleaved = []
+        self._masters = []
 
     def split_instances_by_ip(self):
         for n in self._nodes:
@@ -307,27 +381,12 @@ class CreateClusterStrategy:
         return self
 
     def interleaved_nodes(self):
-        interleaved = list(chain(*zip_longest(*ips.values())))
+        host_to_node = group_by(self._nodes, key=lambda n: n.host)
+        interleaved = list(chain(*zip_longest(*host_to_node.values())))
         self._masters = interleaved[:self._masters_count]
         # Rotating the list sometimes helps to get better initial
         # anti-affinity before the optimizer runs.
         self._interleaved = interleaved[self._master_count:-1] + interleaved[-1:]
-        return self
-
-    def _alloc_slots(self):
-        slots_per_node = float(CLUSTER_HASH_SLOTS) / len(self._masters)
-        first = 0
-        cursor = 0.0
-        for i, m in enumerate(self._masters):
-            last = round(cursor + slots_per_node - 1)
-            if last > CLUSTER_HASH_SLOTS or i == len(self._masters) - 1:
-                last = CLUSTER_HASH_SLOTS - 1
-            if last < first:
-                last = first
-            m.add_slots(list(range(first, last+1)))
-            first = last+1
-            cursor += slots_per_node
-        return self
 
     def _set_replicas_every_master(self): 
         # Select N replicas for every master.
@@ -369,7 +428,7 @@ class CreateClusterStrategy:
                     if node:
                         slave = node
                         self._interleaved = list(filter(lambda n: node != n, self._interleaved))
-                    else
+                    else:
                         slave = self._interleaved.pop(0)
 
                     slave.set_as_replica(m.node_id)
@@ -384,4 +443,56 @@ class CreateClusterStrategy:
                     if assign == UNUSED:
                         break
 
+    def optimize_anti_affinity(self):
+        print(">>> Trying to optimize slaves allocation for anti-affinity")
 
+        # Effort is proportional to cluster size...
+        maxiter = 500 * len(self._nodes) 
+   
+        score, offenders = self.get_anti_affinity_score()
+        for _ in range(maxiter):
+            # Optimal anti affinity reached
+            if score == 0:
+                break
+
+            # We'll try to randomly swap a slave's assigned master causing
+            # an affinity problem with another random slave, to see if we
+            # can improve the affinity.
+            first = random.choice(offenders)
+            nodes = list(filter(lambda n: n != first and n.replicate, nodes)
+            if len(nodes) == 0:
+                break
+
+            second = random.choice(nodes)
+
+            first.set_as_replica(second.replicate)
+            second.set_as_replica(first.replicate)
+
+            new_score, new_offenders = self.get_anti_affinity_score()
+            # If the change actually makes thing worse, revert. Otherwise
+            # leave as it is becuase the best solution may need a few
+            # combined swaps.
+            if new_score > score:
+                first.set_as_replica(first.replicate)
+                second.set_as_replica(second.replicate)
+            else:
+                score = new_score
+                offenders = new_offenders
+
+        if score == 0:
+            print("[OK] Perfect anti-affinity obtained!")
+        elif score >= 10000:
+            print("[WARNING] Some slaves are in the same host as their master")
+        else:
+            print("[WARNING] Some slaves of the same master are in the same host")
+
+
+class CreateClusterUserCustom:
+    def __init__(self, nodes):
+        self._nodes = nodes 
+
+    def set_replicas(self):
+        for n in self._nodes:
+            if n.master_addr:
+                master = first_true(lambda m: m.addr == n.addr, self._nodes) 
+                n.set_as_replica(master.node_id)
