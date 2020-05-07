@@ -50,10 +50,14 @@ class ClusterNode:
         self._cluster_nodes = None
 
     def __eq__(self, obj):
-        return self.addr == obj.addr
+        return self is obj
 
     def __str__(self):
         return self.addr
+
+    @property
+    def info(self):
+        return self._info
 
     @property
     def host(self):
@@ -252,134 +256,19 @@ class AssertEmptyError(ClusterNodeError): pass
 class RedisTribError(Exception): pass
 class TooSmallMastersError(RedisTribError): pass
 
-class RedisTrib:
-    def __init__(self, node_addrs):
-        self._node_addrs = node_addrs
-        self._nodes = []
-        self._masters = []
-
-    def _check_parameters(self):
-        if len(self._masters) < 3:
-            raise TooSmallMastersError('ERROR: Invalid configuration for cluster creation')
-
-    def _add_node(self, node):
-        self._nodes.append(node)
-
-    def _connect_to_nodes(self):
-        for n in self._nodes:
-            n.connect()
-
-    def _distribute_roles(self):
-        for addr in self._node_addrs:
-            master_addr, *slave_addrs = addr.split(',')
-            master = ClusterNode(master_addr)
-            self._nodes.append(master)
-            self._masters.append(master)
-            for slave_addr in slave_addrs:
-                slave = ClusterNode(slave_addr)
-                slave.master_addr = master_addr
-                self._nodes.append(slave)
-
-    def _alloc_slots(self):
-        slots_per_node = float(CLUSTER_HASH_SLOTS) / len(self._masters)
-        first = 0
-        cursor = 0.0
-        for i, m in enumerate(self._masters):
-            last = round(cursor + slots_per_node - 1)
-            if last > CLUSTER_HASH_SLOTS or i == len(self._masters) - 1:
-                last = CLUSTER_HASH_SLOTS - 1
-            if last < first:
-                last = first
-            m.add_slots(list(range(first, last+1)))
-            first = last+1
-            cursor += slots_per_node
-
-    def _flush_nodes_config(self):
-        for n in self._nodes:
-            n.flush_node_config()
-
-    def _assign_config_epoch(self):
-        config_epoch = 1
-        for n in self._masters:
-            try:
-                #n.r.cluster('SET-CONFIG-EPOCH', config_epoch)
-                n.assign_config_epoch(config_epoch)
-            except BaseException:
-                pass
-
-    def _join_cluster(self):
-        first = self._nodes[0]
-        for n in self._nodes[1:]:
-            n.cluster_meet(first.host, first.port)
-
-    def _is_config_consistent(self):
-        for n in self._nodes:
-            n.get_config_signature()
-
-    def _wait_cluster_join(self):
-        pass
-
-    def create_node(self, addr, master_addr=None, password=None):
-        node = ClusterNode(addr, master_addr, password)
-        node.connect(abort=True)
-        node.assert_cluster()
-        node.load_info()
-        node.assert_empty()
-        return node 
-
 
 class CreateCluster:
-    def __init__(self, node_addrs, replicas=0, password=None):
-        self._node_addrs = node_addrs
-        self._password = password
-        self._nodes = []
+    def __init__(self, nodes, role_distribution, replicas=0):
+        self._nodes = nodes
+        self._role_distribution = role_distribution
         self._replicas = replicas
     
     def create(self):
-        '''
-        xputs ">>> Creating cluster"
-        argv[0..-1].each{|n|
-            node = ClusterNode.new(n)
-            node.connect(:abort => true)
-            node.assert_cluster
-            node.load_info
-            node.assert_empty
-            add_node(node)
-        }
-        check_create_parameters
-        xputs ">>> Performing hash slots allocation on #{@nodes.length} nodes..."
-        alloc_slots
-        show_nodes
-        yes_or_die "Can I set the above configuration?"
-        flush_nodes_config
-        xputs ">>> Nodes configuration updated"
-        xputs ">>> Assign a different config epoch to each node"
-        assign_config_epoch
-        xputs ">>> Sending CLUSTER MEET messages to join the cluster"
-        join_cluster
-        # Give one second for the join to start, in order to avoid that
-        # wait_cluster_join will find all the nodes agree about the config as
-        # they are still empty with unassigned slots.
-        sleep 1
-        wait_cluster_join
-        flush_nodes_config # Useful for the replicas
-        # Reset the node information, so that when the
-        # final summary is listed in check_cluster about the newly created cluster
-        # all the nodes would get properly listed as slaves or masters
-        reset_nodes
-        load_cluster_info_from_node(argv[0])
-        check_cluster
-        '''
-        xprint(">>> Creating cluster")
-        nodes_factory = NodesFactory(self._node_addrs, self._password)
-        self._nodes = nodes_factory.create_nodes()
-
         self._check_create_parameters()
         
         # TODO: 이 지점에서 마스터와 슬레이브를 다시 분배함
         # 적절한 전략을 찾기 위해서 팩토리 메서드를 사용할 것
-        role_distribution_strategy = self._get_role_distribution_strategy()
-        role_distribution_strategy.create()
+        self._role_distribution.create()
         self._masters = [n for n in self._nodes if not n.replicate]
 
         # TODO: anti affinitiy score를 이곳에서 계산?
@@ -509,7 +398,7 @@ class OriginalRoleDistribution(RoleDistribution):
         host_to_node = group_by(self._nodes, key=lambda n: n.host)
         interleaved = list(chain(*zip_longest(*host_to_node.values())))
         master_count = int(len(self._nodes) / (self._replicas+1))
-        self._masters = interleaved[:masters_count]
+        self._masters = interleaved[:master_count]
         # Rotating the list sometimes helps to get better initial
         # anti-affinity before the optimizer runs.
         self._interleaved = interleaved[master_count:-1] + interleaved[-1:]
@@ -526,8 +415,8 @@ class OriginalRoleDistribution(RoleDistribution):
         # all nodes will be used.
         assignment_verbose = True
 
-        for assign in [OriginalCreateNodesFactory,_REQUESTED,
-                       OriginalCreateNodesFactory._UNUSED]:
+        for assign in [OriginalRoleDistribution._REQUESTED,
+                       OriginalRoleDistribution._UNUSED]:
             for m in self._masters:
                 assigned_replicas = 0
                 for _ in range(self._replicas):
@@ -535,11 +424,11 @@ class OriginalRoleDistribution(RoleDistribution):
                         break
 
                     if assignment_verbose:
-                        if assign == OriginalCreateNodesFactory._REQUESTED:
+                        if assign == OriginalRoleDistribution._REQUESTED:
                             print(f"Requesting total of {self._replicas} replicas "\
-                                  f"({self._assigned_replicas} replicas assigned "\
+                                  f"({assigned_replicas} replicas assigned "\
                                   f"so far with {len(self._interleaved)} total remaining).")
-                        elif assign == OriginalCreateNodesFactory._UNUSED:
+                        elif assign == OriginalRoleDistribution._UNUSED:
                             print(f"Assigning extra instance to replication "\
                                   f"role too ({len(self._interleaved)} remaining).")
 
@@ -564,11 +453,11 @@ class OriginalRoleDistribution(RoleDistribution):
                     # master before repeating masters.
                     # This break lets us assign extra replicas to masters
                     # in a round-robin way.
-                    if assign == UNUSED:
+                    if assign == OriginalRoleDistribution._UNUSED:
                         break
             
         if self._interleaved:
-            raise UnassignedNodesRemain('Unassigned nodes remain')
+            raise UnassignedNodesRemain(f"Unassigned nodes remain: {len(self._interleaved)}")
 
 
     def _optimize_anti_affinity(self):
@@ -577,7 +466,7 @@ class OriginalRoleDistribution(RoleDistribution):
         # Effort is proportional to cluster size...
         maxiter = 500 * len(self._nodes) 
    
-        score, offenders = self._get_anti_affinity_score()
+        score, offenders = get_anti_affinity_score(self._nodes)
         for _ in range(maxiter):
             # Optimal anti affinity reached
             if score == 0:
@@ -596,7 +485,7 @@ class OriginalRoleDistribution(RoleDistribution):
             first.set_as_replica(second.replicate)
             second.set_as_replica(first.replicate)
 
-            new_score, new_offenders = self._get_anti_affinity_score()
+            new_score, new_offenders = get_anti_affinity_score(self._nodes)
             # If the change actually makes thing worse, revert. Otherwise
             # leave as it is becuase the best solution may need a few
             # combined swaps.
