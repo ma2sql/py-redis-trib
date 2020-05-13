@@ -24,17 +24,16 @@ class CheckCluster:
                 open_slots.union(set(importing.keys()))
         if len(open_slots) > 0:
             xprint(f"[WARNING] The following slots are open: "\
-                   f"{','.join(open_slots)}"
+                   f"{','.join(open_slots)}")
         return open_slots
-
 
     def check_slots_coverage(self):
         xprint(">>> Check slots coverage...")
         covered_slots = self._nodes.covered_slots()
-        if covered_slots == CLUSTER_HASH_SLOTS:
-            xprint("[OK] All {CLUSTER_HASH_SLOTS} slots covered.")
+        if len(covered_slots) == CLUSTER_HASH_SLOTS:
+            xprint(f"[OK] All {CLUSTER_HASH_SLOTS} slots covered.")
         else:
-            xprint("[ERR] Not all {CLUSTER_HASH_SLOTS} slots are covered by nodes.")
+            xprint(f"[ERR] Not all {CLUSTER_HASH_SLOTS} {covered_slots} slots are covered by nodes.")
 
         return list(range(CLUSTER_HASH_SLOTS)) - covered_slots.keys()
 

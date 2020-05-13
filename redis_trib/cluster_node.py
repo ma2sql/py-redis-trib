@@ -2,6 +2,7 @@ import redis
 from .util import xprint
 from .exceptions import AssertEmptyError
 from more_itertools import first_true
+from functools import reduce
 
 class ClusterNode:
     def __init__(self, addr, password=None, master_addr=None):
@@ -79,6 +80,14 @@ class ClusterNode:
     def r(self):
         return self._r
 
+    @property
+    def migrating(self):
+        return self._migrating
+
+    @property
+    def importing(self):
+        return self._importing
+
     def is_slave(self):
         return self.replicate is not None
 
@@ -119,9 +128,10 @@ class ClusterNode:
         return self
 
     def load_info(self):
-        for n in self.cluster_nodes.values():
+        for k, n in self.cluster_nodes.items():
             flags = self._parse_flags(n.get('flags'))
             if 'myself' in flags:
+                self._host, self._port = k.split('@')[0].split(':')[:2]
                 self._node_id = n['node_id']
                 self._flags = flags
                 if n['master_id'] != '-':
@@ -219,12 +229,12 @@ class ClusterNode:
             info_str = f"S: {self._replicate} {self}"
         else:
             info_str = f"{role}: {self._node_id} {self}\n"\
-                       f"    slots:{self._summarize_slots(self._slots)} ({len(self._slots)}) "\
+                       f"   slots:{self._summarize_slots(self._slots)} ({len(self._slots)} slots) "\
                        f"{','.join(filter(lambda flag: flag != 'myself', self._flags))}"
         if self._replicate:
-            info_str += f"\n    replicates {self._replicate}"
+            info_str += f"\n   replicates {self._replicate}"
         elif "master" in self._flags and self._replicas:
-            info_str += f"\n    {len(self._replicas)} additional replica(s)"
+            info_str += f"\n   {len(self._replicas)} additional replica(s)"
         
         return info_str
 
@@ -282,5 +292,17 @@ class ClusterNodes:
             yield n, n.migrating, n.importing
            
     def covered_slots(self):
-        return [n.slots for n in self]
+        return reduce(lambda a, b: {**a, **b.slots}, self, {})
 
+    def show_nodes(self):
+        for n in self:
+            print(n.info_string())
+
+    def populate_nodes_replicas_info(self):
+        for n in self:
+            if n.is_slave():
+                master = self.get_master(n)
+                if master:
+                    master.add_replica(n)
+
+        
