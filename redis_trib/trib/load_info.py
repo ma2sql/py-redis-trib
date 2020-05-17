@@ -37,21 +37,6 @@ class ShowClusterInfo:
 
 
     def _show_cluster_info(self):
-        '''
-        masters = 0
-        keys = 0
-        @nodes.each{|n|
-            if n.has_flag?("master")
-                puts "#{n} (#{n.info[:name][0...8]}...) -> #{n.r.dbsize} keys | #{n.slots.length} slots | "+
-                     "#{n.info[:replicas].length} slaves."
-                masters += 1
-                keys += n.r.dbsize
-            end
-        }
-        xputs "[OK] #{keys} keys in #{masters} masters."
-        keys_per_slot = sprintf("%.2f",keys/16384.0)
-        puts "#{keys_per_slot} keys per slot on average."
-        '''
         masters = 0
         keys = 0
         for n in self._nodes:
@@ -61,7 +46,6 @@ class ShowClusterInfo:
                 keys += n.r.dbsize()
         xprint(f"[OK] {keys} keys in {masters} masters.")
         print(f"{keys/16384.0:.2f} keys per slot on average.")
-            
 
 
     def _populate_nodes_replicas_info(self):

@@ -1,8 +1,11 @@
 import redis
-from .util import xprint
+from .util import xprint, group_by
 from .exceptions import AssertEmptyError
 from more_itertools import first_true
 from functools import reduce
+import collections
+from .const import CLUSTER_HASH_SLOTS
+import time
 
 class ClusterNode:
     def __init__(self, addr, password=None, master_addr=None):
@@ -25,16 +28,13 @@ class ClusterNode:
         self._r = None
         self._friends = []
         self._cluster_nodes = None
+        self._dbsize = None
 
     def __eq__(self, obj):
         return self is obj
 
     def __str__(self):
         return self.addr
-
-    @property
-    def info(self):
-        return self._info
 
     @property
     def host(self):
@@ -91,6 +91,9 @@ class ClusterNode:
     def is_slave(self):
         return self.replicate is not None
 
+    def is_master(self):
+        return not self.is_slave()
+
     def add_replica(self, node):
         self.replicas.append(node)
 
@@ -114,7 +117,6 @@ class ClusterNode:
         cluster_enabled = self._r.info().get('cluster_enabled') or 0
         if int(cluster_enabled) != 1:
             raise AssertClusterError(f"[ERR] Node {self} is not configured as a cluster node.")
-        return self
 
     def assert_empty(self):
         cluster_known_nodes = self._r.cluster('INFO').get('cluster_known_nodes') or 0
@@ -125,13 +127,15 @@ class ClusterNode:
             raise AssertEmptyError(f"[ERR] Node {self} is not empty. "
                                    f"Either the node already knows other nodes (check with CLUSTER NODES)"
                                    f" or contains some key in database 0.")
-        return self
+        self._dbsize = keyspace and keyspace.get('keys')
 
     def load_info(self):
-        for k, n in self.cluster_nodes.items():
+        for k, n in self._get_cluster_nodes().items():
             flags = self._parse_flags(n.get('flags'))
             if 'myself' in flags:
-                self._host, self._port = k.split('@')[0].split(':')[:2]
+                host, port = k.split('@')[0].split(':')[:2]
+                if host:
+                    self._host, self._port = host, port
                 self._node_id = n['node_id']
                 self._flags = flags
                 if n['master_id'] != '-':
@@ -146,14 +150,23 @@ class ClusterNode:
     def _parse_flags(self, flags):
         return flags.split(',')
 
-    @property
-    def cluster_nodes(self):
-        self._cluster_nodes = self._r.cluster('NODES')
+    def _get_cluster_nodes(self):
+        if not self._cluster_nodes:
+            self._refresh_cluster_nodes()
         return self._cluster_nodes
+
+    def _refresh_cluster_nodes(self):
+        self._cluster_nodes = self._r.cluster('NODES')
+
+    @property
+    def dbsize(self):
+        if not self._dbsize:
+            self._dbsize = self._r.dbsize()
+        return self._dbsize
 
     @property
     def friends(self):
-        for addr, n in  self.cluster_nodes.items():
+        for addr, n in  self._get_cluster_nodes().items():
             flags = self._parse_flags(n['flags'])
             if 'myself' not in flags:
                 yield addr, flags
@@ -183,7 +196,6 @@ class ClusterNode:
 
         return parsed_slots, migrating, importing
 
-
     def add_slots(self, slots):
         if isinstance(slots, (list, tuple, range)):
             self._slots.update({s: False for s in slots})
@@ -194,7 +206,6 @@ class ClusterNode:
     def set_as_replica(self, master_id):
         self._replicate = master_id
         self._dirty = True
-
 
     def flush_node_config(self):
         xprint(f"[WARN] {self}: {self._dirty}")
@@ -248,13 +259,20 @@ class ClusterNode:
         # Return a single string representing nodes and associated slots.
         # TODO: remove slaves from config when slaves will be handled
         # by Redis Cluster.
+        self._refresh_cluster_nodes()
         config = []
-        for n in self.cluster_nodes.values():
+        for n in self._get_cluster_nodes().values():
             slots, *_ = self._parse_slots(n['slots'])
             if 'master' not in self._parse_flags(n['flags']):
                 continue
             config.append(f"{n['node_id']}:{self._summarize_slots(slots)}")
         return '|'.join(sorted(config))
+
+    def cluster_replicate(self, master):
+        self._cluster_replicate(master.node_id)
+
+    def _cluster_replicate(self, node_id):
+        self._r.cluster('REPLICATE', node_id)
 
 
 class ClusterNodes:
@@ -267,6 +285,10 @@ class ClusterNodes:
 
     def __len__(self):
         return len(self._nodes)
+
+    @property
+    def masters(self):
+        return [n for n in self if n.is_master()]
 
     def add_node(self, node):
         self._nodes.append(node)
@@ -305,4 +327,101 @@ class ClusterNodes:
                 if master:
                     master.add_replica(n)
 
+    def alloc_slots(self):
+        slots_per_node = float(CLUSTER_HASH_SLOTS) / len(self.masters)
+        first = 0
+        cursor = 0.0
+        for i, m in enumerate(self.masters):
+            last = round(cursor + slots_per_node - 1)
+            if last > CLUSTER_HASH_SLOTS or i == len(self.masters) - 1:
+                last = CLUSTER_HASH_SLOTS - 1
+            if last < first:
+                last = first
+            m.add_slots(list(range(first, last+1)))
+            first = last+1
+            cursor += slots_per_node
+
+    def flush_nodes_config(self):
+        for n in self:
+            n.flush_node_config()
+
+    def assign_config_epoch(self):
+        for config_epoch, m in enumerate(self.masters, 1):
+            xprint(f"[WARNING] {m}: {config_epoch}")
+            m.set_config_epoch(config_epoch)
+
+    def join_all_cluster(self):
+        first = self[0]
+        for n in self[1:]:
+            n.cluster_meet(first.host, first.port)
+
+    def join_cluster(self, new_node):
+        first = self[0]
+        new_node.cluster_meet(first.host, first.port)
+
+    def get_anti_affinity_score(self):
+        score = 0
+        # List of offending slaves to return to the caller
+        offending = []
+        # First, split nodes by host
+        host_to_node = group_by(self, key=lambda n: n.host)
+    
+        # Then, for each set of nodes in the same host, split by
+        # related nodes (masters and slaves which are involved in
+        # replication of each other)
+        for host, nodes in host_to_node.items():
+            related = collections.defaultdict(list)
+            for n in nodes:
+                if n.replicate:
+                    related[n.replicate].append('s')
+                else:
+                    related[n.node_id].append('m')
+    
+            # Now it's trivial to check, for each related group having the
+            # same host, what is their local score.
+            for node_id, types in related.items():
+                if len(types) < 2:
+                    continue
+                # Make sure :m if the first if any
+                sorted_types = sorted(types)
+                if sorted_types[0] == 'm':
+                    score += 10000 * (len(types) -1)
+                else:
+                    score += 1 * len(types)
+    
+                # Populate the list of offending node
+                for n in nodes:
+                    if n.replicate == node_id and n.host == host:
+                        offending.append(n)
         
+        return score, offending
+    
+    def evaluate_anti_affinity(self):
+        score, *_ = self.get_anti_affinity_score()
+        if score == 0:
+            xprint("[OK] Perfect anti-affinity obtained!")
+        elif score >= 10000:
+            xprint("[WARNING] Some slaves are in the same host as their master")
+        else:
+            xprint("[WARNING] Some slaves of the same master are in the same host")
+    
+    def is_config_consistent(self):
+        signatures=[]
+        for n in self:
+            signatures.append(n.get_config_signature())
+        return len(set(signatures)) == 1
+    
+    def wait_cluster_join(self):
+        print("Waiting for the cluster to join")
+        while not self.is_config_consistent():
+            print(".", end="", flush=True)
+            time.sleep(1)
+        print()
+
+    def get_node_by_name(self, node_id):
+        return first_true(self, pred=lambda m: m.node_id == node_id)
+
+
+    def get_master_with_least_replicas(self):
+        return sorted(self.masters, key=lambda n: len(n.replicas))[0]
+

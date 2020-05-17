@@ -4,87 +4,47 @@ import abc
 import random
 import time
 
-from .const import CLUSTER_HASH_SLOTS
-from .util import xprint, group_by
-from .affinity_score import (
-    get_anti_affinity_score,
-    evaluate_anti_affinity
-)
-from .cluster_node import ClusterNode
-from .exceptions import UnassignedNodesRemain
-from .consistency import wait_cluster_join
+from ..const import CLUSTER_HASH_SLOTS
+from ..util import xprint, group_by
+from ..cluster_node import ClusterNode
+from ..exceptions import UnassignedNodesRemain
 
 
 class CreateCluster:
-    def __init__(self, role_distribution):
-        self._nodes = None
-        self._masters = None
-        self._role_distribution = role_distribution
-    
+    def __init__(self, nodes, user_custom, replicas=0):
+        self._nodes = nodes
+        self._role_distribution = self._get_role_distribution_strategy(
+                                      nodes, user_custom, replicas)
+
     def create(self):
         xprint(">>> Creating cluster")
         self._role_distribution.distribute()
 
-        self._nodes = self._role_distribution.nodes
-        self._masters = [n for n in self._nodes if not n.replicate]
-
-        evaluate_anti_affinity(self._nodes)
+        self._nodes.evaluate_anti_affinity()
 
         xprint(f">>> Performing hash slots allocation "
-               f"on {len(self._masters)} nodes...")
-        self._alloc_slots()
-        self._show_nodes()
+               f"on {len(self._nodes.masters)} nodes...")
+        self._nodes.alloc_slots()
+        self._nodes.show_nodes()
 
         # yes_or_die "Can I set the above configuration?"
-        self._flush_nodes_config()
+        self._nodes.flush_nodes_config()
 
         xprint(">>> Nodes configuration updated")
         xprint(">>> Assign a different config epoch to each node")
-        self._assign_config_epoch()
+        self._nodes.assign_config_epoch()
 
         xprint(">>> Sending CLUSTER MEET messages to join the cluster")
-        self._join_cluster()
+        self._nodes.join_all_cluster()
 
         time.sleep(1)
-        wait_cluster_join(self._nodes)
-        self._flush_nodes_config()
+        self._nodes.wait_cluster_join()
+        self._nodes.flush_nodes_config()
 
-    def _show_nodes(self):
-        for n in self._nodes:
-            print(n.info_string())
-
-    def _get_role_distribution_strategy(self):
-        if more_itertools.first_true(self._nodes, pred=lambda n: n.master_addr):
-            return CustomRoleDistribution(self._nodes)
-        return OriginalRoleDistribution(self._nodes)
-
-    def _alloc_slots(self):
-        slots_per_node = float(CLUSTER_HASH_SLOTS) / len(self._masters)
-        first = 0
-        cursor = 0.0
-        for i, m in enumerate(self._masters):
-            last = round(cursor + slots_per_node - 1)
-            if last > CLUSTER_HASH_SLOTS or i == len(self._masters) - 1:
-                last = CLUSTER_HASH_SLOTS - 1
-            if last < first:
-                last = first
-            m.add_slots(list(range(first, last+1)))
-            first = last+1
-            cursor += slots_per_node
-
-    def _flush_nodes_config(self):
-        for n in self._nodes:
-            n.flush_node_config()
-
-    def _assign_config_epoch(self):
-        for config_epoch, m in enumerate(self._masters, 1):
-            xprint(f"[WARNING] {m}: {config_epoch}")
-            m.set_config_epoch(config_epoch)
-
-    def _join_cluster(self):
-        first = self._nodes[0]
-        for n in self._nodes[1:]:
-            n.cluster_meet(first.host, first.port)
+    def _get_role_distribution_strategy(self, nodes, user_custom, relicas):
+        if user_custom:
+            return CustomRoleDistribution(nodes)
+        return OriginalRoleDistribution(nodes, replicas)
 
 
 class RoleDistribution(abc.ABC):
@@ -198,7 +158,6 @@ class OriginalRoleDistribution(RoleDistribution):
             xprint(f"[ERROR] {self._interleaved}")
             raise UnassignedNodesRemain(f"Unassigned nodes remain: {len(self._interleaved)}")
 
-
     def _optimize_anti_affinity(self):
         print(">>> Trying to optimize slaves allocation for anti-affinity")
 
@@ -237,7 +196,7 @@ class OriginalRoleDistribution(RoleDistribution):
 
 
 class CustomRoleDistribution(RoleDistribution):
-    def __init__(self, nodes):
+    def __init__(self, nodes, replicas=None):
         super().__init__(nodes)
 
     def _check_create_parameters(self):

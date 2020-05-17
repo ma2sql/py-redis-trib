@@ -1,32 +1,24 @@
-from .create_cluster import (
-    CreateCluster,
-    OriginalRoleDistribution,
-    CustomRoleDistribution,
-)
-from .factory import NodesFactory
-from .load_info import ShowClusterInfo
-from .check_cluster import CheckCluster
+from .trib import RedisTrib
+from .factory import NodeFactory, NodesFactory
 
 def create_cluster_command(addrs, password, replicas, user_custom):
     nodes = NodesFactory.create_new_nodes(addrs, password)
-    if user_custom:
-        role_distribution = CustomRoleDistribution(nodes)
-    else:
-        role_distribution = OriginalRoleDistribution(nodes, replicas)
-    CreateCluster(role_distribution).create()
+    redis_trib = RedisTrib(nodes)
+    redis_trib.create(user_custom, replicas)
 
 def info_cluster_command(addr, password):
     nodes = NodesFactory.create_nodes_with_friends(addr, password)
-    show_cluster = ShowClusterInfo(nodes)
-    show_cluster.load_cluster_info_from_node()
-
+    redis_trib = RedisTrib(nodes)
+    redis_trib.show()
 
 def check_cluster_command(addr, password):
     nodes = NodesFactory.create_nodes_with_friends(addr, password)
-    nodes.populate_nodes_replicas_info()
-    nodes.show_nodes()
-    check_cluster = CheckCluster(nodes)
-    check_cluster.check_config_consistency()
-    check_cluster.check_open_slots()
-    check_cluster.check_slots_coverage()
+    redis_trib = RedisTrib(nodes)
+    redis_trib.check_cluster()
+
+def add_node_command(addr, password, new_addr, is_slave, master_id):
+    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    new_node = NodeFactory.create_empty_node(new_addr, password)
+    redis_trib = RedisTrib(nodes)
+    redis_trib.add(new_node, is_slave, master_id)
 

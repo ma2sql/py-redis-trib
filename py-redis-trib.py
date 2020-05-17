@@ -32,6 +32,14 @@ def info(addr, password):
 def check(addr, password):
     check_cluster_command(addr, password)
 
+@cli.command()
+@click.argument('new_addr')
+@click.argument('addr')
+@click.option('-p', '--password')
+@click.option('-m', '--master-id')
+@click.option('-s', '--slave', 'is_slave', is_flag=True)
+def add_node(addr, new_addr, password, master_id, is_slave):
+    click.echo(f"{addr}, {new_addr}, {password}, {master_id}, {is_slave}")
 
 
 if __name__ == '__main__':

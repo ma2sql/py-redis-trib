@@ -58,5 +58,8 @@ class NodesFactory:
             if fnode:
                 nodes.append(fnode)
     
-        return ClusterNodes(nodes)
+        _cluster_nodes = ClusterNodes(nodes)
+        _cluster_nodes.populate_nodes_replicas_info()
+
+        return _cluster_nodes
 
