@@ -1,60 +1,12 @@
-import itertools
-import more_itertools
 import abc
-import random
-import time
-
-from ..const import CLUSTER_HASH_SLOTS
-from ..util import xprint, group_by
-from ..cluster_node import ClusterNode
-from ..exceptions import UnassignedNodesRemain
-
-
-class CreateCluster:
-    def __init__(self, nodes, user_custom, replicas=0):
-        self._nodes = nodes
-        self._role_distribution = self._get_role_distribution_strategy(
-                                      nodes, user_custom, replicas)
-
-    def create(self):
-        xprint(">>> Creating cluster")
-        self._role_distribution.distribute()
-
-        self._nodes.evaluate_anti_affinity()
-
-        xprint(f">>> Performing hash slots allocation "
-               f"on {len(self._nodes.masters)} nodes...")
-        self._nodes.alloc_slots()
-        self._nodes.show_nodes()
-
-        # yes_or_die "Can I set the above configuration?"
-        self._nodes.flush_nodes_config()
-
-        xprint(">>> Nodes configuration updated")
-        xprint(">>> Assign a different config epoch to each node")
-        self._nodes.assign_config_epoch()
-
-        xprint(">>> Sending CLUSTER MEET messages to join the cluster")
-        self._nodes.join_all_cluster()
-
-        time.sleep(1)
-        self._nodes.wait_cluster_join()
-        self._nodes.flush_nodes_config()
-
-    def _get_role_distribution_strategy(self, nodes, user_custom, relicas):
-        if user_custom:
-            return CustomRoleDistribution(nodes)
-        return OriginalRoleDistribution(nodes, replicas)
+import itertools
+import collections
+import more_itertools
+from .exceptions import UnassignedNodesRemain
+from .util import group_by
 
 
 class RoleDistribution(abc.ABC):
-    def __init__(self, nodes):
-        self._nodes = nodes
-
-    @property
-    def nodes(self):
-        return self._nodes
-
     @abc.abstractmethod
     def distribute(self):
         pass
@@ -70,29 +22,30 @@ class OriginalRoleDistribution(RoleDistribution):
     _UNUSED = 'UNUSED'
 
     def __init__(self, nodes, replicas=0):
-        super().__init__(nodes)
+        self._nodes = nodes
         self._replicas = replicas
         self._masters = None
         self._interleaved = []
 
-    def _check_create_parameters(self):
-        if (len(self.nodes) / (self._replicas + 1) < 3):
-            xprint(f"""*** ERROR: Invalid configuration for cluster creation.\n"""
-                   f"""*** Redis Cluster requires at least 3 master nodes.\n"""
-                   f"""*** This is not possible with {len(self.nodes)} """
-                   f"""nodes and {self._replicas} replicas per node.\n"""
-                   f"""*** At least {3*(self._replicas+1)} nodes are required.\n""")
-            raise CreateClusterException('Invalid configuration for cluster creation')
-
     def distribute(self):
+        self._check_create_parameters()
         self._interleaved_nodes()
         self._set_replicas_every_master()
         self._optimize_anti_affinity()
 
+    def _check_create_parameters(self):
+        if (len(self._nodes) / (self._replicas + 1) < 3):
+            xprint(f"""*** ERROR: Invalid configuration for cluster creation.\n"""
+                   f"""*** Redis Cluster requires at least 3 master nodes.\n"""
+                   f"""*** This is not possible with {len(self._nodes)} """
+                   f"""nodes and {self._replicas} replicas per node.\n"""
+                   f"""*** At least {3*(self._replicas+1)} nodes are required.\n""")
+            raise CreateClusterException('Invalid configuration for cluster creation')
+
     def _interleaved_nodes(self):
-        host_to_node = group_by(self.nodes, key=lambda n: n.host)
+        host_to_node = group_by(self._nodes, key=lambda n: n.host)
         interleaved = list(itertools.chain(*itertools.zip_longest(*host_to_node.values())))
-        master_count = int(len(self.nodes) / (self._replicas+1))
+        master_count = int(len(self._nodes) / (self._replicas+1))
         self._masters = interleaved[:master_count]
 
         # Rotating the list sometimes helps to get better initial
@@ -162,9 +115,9 @@ class OriginalRoleDistribution(RoleDistribution):
         print(">>> Trying to optimize slaves allocation for anti-affinity")
 
         # Effort is proportional to cluster size...
-        maxiter = 500 * len(self.nodes) 
+        maxiter = 500 * len(self._nodes) 
    
-        score, offenders = get_anti_affinity_score(self.nodes)
+        score, offenders = self._get_anti_affinity_score()
         for _ in range(maxiter):
             # Optimal anti affinity reached
             if score == 0:
@@ -183,7 +136,7 @@ class OriginalRoleDistribution(RoleDistribution):
             first.set_as_replica(second.replicate)
             second.set_as_replica(first.replicate)
 
-            new_score, new_offenders = get_anti_affinity_score(self.nodes)
+            new_score, new_offenders = self._get_anti_affinity_score()
             # If the change actually makes thing worse, revert. Otherwise
             # leave as it is becuase the best solution may need a few
             # combined swaps.
@@ -194,13 +147,63 @@ class OriginalRoleDistribution(RoleDistribution):
                 score = new_score
                 offenders = new_offenders
 
+    def _get_anti_affinity_score(self):
+        score = 0
+        # List of offending slaves to return to the caller
+        offending = []
+        # First, split nodes by host
+        host_to_node = group_by(self._nodes, key=lambda n: n.host)
+    
+        # Then, for each set of nodes in the same host, split by
+        # related nodes (masters and slaves which are involved in
+        # replication of each other)
+        for host, nodes in host_to_node.items():
+            related = collections.defaultdict(list)
+            for n in nodes:
+                if n.replicate:
+                    related[n.replicate].append('s')
+                else:
+                    related[n.node_id].append('m')
+    
+            # Now it's trivial to check, for each related group having the
+            # same host, what is their local score.
+            for node_id, types in related.items():
+                if len(types) < 2:
+                    continue
+                # Make sure :m if the first if any
+                sorted_types = sorted(types)
+                if sorted_types[0] == 'm':
+                    score += 10000 * (len(types) -1)
+                else:
+                    score += 1 * len(types)
+    
+                # Populate the list of offending node
+                for n in nodes:
+                    if n.replicate == node_id and n.host == host:
+                        offending.append(n)
+        
+        return score, offending
+    
+    def _evaluate_anti_affinity(self):
+        score, *_ = self._get_anti_affinity_score()
+        if score == 0:
+            xprint("[OK] Perfect anti-affinity obtained!")
+        elif score >= 10000:
+            xprint("[WARNING] Some slaves are in the same host as their master")
+        else:
+            xprint("[WARNING] Some slaves of the same master are in the same host")
+ 
 
 class CustomRoleDistribution(RoleDistribution):
     def __init__(self, nodes, replicas=None):
-        super().__init__(nodes)
+        self._nodes = nodes
+
+    def distribute(self):
+        self._check_create_parameters()
+        self._set_replication()
 
     def _check_create_parameters(self):
-        master_nodes = [n for n in self.nodes if not n.master_addr]
+        master_nodes = [n for n in self._nodes if not n.master_addr]
         if len(master_nodes) < 3:
             xprint(f"""*** ERROR: Invalid configuration for cluster creation.\n"""
                    f"""*** Redis Cluster requires at least 3 master nodes.\n"""
@@ -208,12 +211,9 @@ class CustomRoleDistribution(RoleDistribution):
                    f"""*** At least 3 master nodes are required.\n""")
             raise CreateClusterException('Invalid configuration for cluster creation')
 
-    def distribute(self):
-        self._set_replication()
-
     def _set_replication(self):
-        for n in self.nodes:
+        for n in self._nodes:
             if n.master_addr:
-                master = first_true(self.nodes, pred=lambda m: m.addr == n.master_addr) 
+                master = first_true(self._nodes, pred=lambda m: m.addr == n.master_addr) 
                 n.set_as_replica(master.node_id)
 

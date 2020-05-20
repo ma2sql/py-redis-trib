@@ -5,6 +5,8 @@ import time
 from .check_cluster import CheckCluster
 from .create_cluster import CreateCluster
 from .show_cluster import ShowCluster
+from .add_node import AddNode
+from .del_node import DelNode
 
 class RedisTrib:
     def __init__(self, nodes):
@@ -26,4 +28,9 @@ class RedisTrib:
         self.check()
         add_node = AddNode(self._nodes, new_node, is_slave, master_id)
         add_node.add()
+
+    def delete(self, del_node_id, rename_commands):
+        self.check()
+        del_node = DelNode(self._nodes, del_node_id, rename_commands)
+        del_node.delete()
 

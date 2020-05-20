@@ -1,1 +1,0 @@
-from .trib import *

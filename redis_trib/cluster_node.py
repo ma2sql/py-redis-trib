@@ -94,6 +94,17 @@ class ClusterNode:
     def is_master(self):
         return not self.is_slave()
 
+    def is_deletable(self):
+        return len(self.slots.keys()) == 0
+
+    def is_my_master(self, master):
+        if self._replicate:
+            return self._replicate.lower() == master.node_id.lower()
+        return False
+
+    def is_my_replica(self, replica):
+        return self._node_id.lower() == replica.replicate.lower()
+
     def add_replica(self, node):
         self.replicas.append(node)
 
@@ -213,7 +224,7 @@ class ClusterNode:
 
         if self._replicate:
             try:
-                self._r.cluster("REPLICATE", self._replicate)
+                self.cluster_replicate(self._replicate)
             except redis.exceptions.ResponseError as e:
                 xprint(f"[ERROR] {self._replicate} {e}")
                 return
@@ -268,11 +279,27 @@ class ClusterNode:
             config.append(f"{n['node_id']}:{self._summarize_slots(slots)}")
         return '|'.join(sorted(config))
 
-    def cluster_replicate(self, master):
-        self._cluster_replicate(master.node_id)
+    def cluster_replicate(self, master_id):
+        self._r.cluster('REPLICATE', master_id)
 
-    def _cluster_replicate(self, node_id):
-        self._r.cluster('REPLICATE', node_id)
+    def cluster_forget(self, node_id):
+        self._r.cluster('FORGET', node_id)
+
+    def shutdown(self, rename_commands):
+        shutdown_commands = ['SHUTDOWN']
+        if rename_commands:
+            shutdown_commands += rename_commands
+
+        for cmd in shutdown_commands:
+            try:
+                self._r.execute_command(cmd)
+            except redis.exceptions.ResponseError as e:
+                xprint(f"[WARN] {e}")
+                continue
+            except redis.exceptions.ConnectionError:
+                break
+        else:
+            raise BaseException(f"Failed to shutdown {self}")
 
 
 class ClusterNodes:
@@ -320,13 +347,6 @@ class ClusterNodes:
         for n in self:
             print(n.info_string())
 
-    def populate_nodes_replicas_info(self):
-        for n in self:
-            if n.is_slave():
-                master = self.get_master(n)
-                if master:
-                    master.add_replica(n)
-
     def alloc_slots(self):
         slots_per_node = float(CLUSTER_HASH_SLOTS) / len(self.masters)
         first = 0
@@ -351,12 +371,12 @@ class ClusterNodes:
             m.set_config_epoch(config_epoch)
 
     def join_all_cluster(self):
-        first = self[0]
-        for n in self[1:]:
+        first = self._nodes[0]
+        for n in self._nodes[1:]:
             n.cluster_meet(first.host, first.port)
 
     def join_cluster(self, new_node):
-        first = self[0]
+        first = self._nodes[0]
         new_node.cluster_meet(first.host, first.port)
 
     def get_anti_affinity_score(self):
@@ -421,7 +441,25 @@ class ClusterNodes:
     def get_node_by_name(self, node_id):
         return first_true(self, pred=lambda m: m.node_id == node_id)
 
-
     def get_master_with_least_replicas(self):
         return sorted(self.masters, key=lambda n: len(n.replicas))[0]
 
+    def replcate_master(self, master, replica):
+        replica.cluster_replicate(master.node_id)
+
+    def forget_node(self, deleting_node):
+        for node in self._nodes:
+            if node == deleting_node:
+                continue
+
+            if (node.is_slave() 
+                and node.replicate.lower() == deleting_node.node_id.lower()):
+
+                master = self._nodes.get_master_with_least_replicas()
+                xprint(f">>> {node} as replica of {master}")
+                node.cluster_replicate(master.node_id)
+
+            node.cluster_forget(deleting_node.node_id)
+
+    def shutdown_node(self, deleting_node, rename_commands):
+        deleting_node.shutdown(rename_commands)

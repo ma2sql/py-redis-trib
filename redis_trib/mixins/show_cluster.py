@@ -1,8 +1,8 @@
 from ..util import xprint
 
 class ShowCluster:
-    def __init__(self, nodes):
-        self._nodes = nodes
+
+    __slots__ = ()
 
     def show(self):
         masters = 0

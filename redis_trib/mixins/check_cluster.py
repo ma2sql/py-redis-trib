@@ -3,17 +3,17 @@ from ..const import CLUSTER_HASH_SLOTS
 
 
 class CheckCluster:
-    def __init__(self, nodes):
-        self._nodes = nodes
+
+    __slots__ = ()
 
     def check(self):
-        self._nodes.show_nodes()
+        self._show_nodes()
         self._check_config_consistency()
         self._check_open_slots()
         self._check_slots_coverage()
 
     def _check_config_consistency(self):
-        if not self._nodes.is_config_consistent():
+        if not self._is_config_consistent():
             xprint("[ERR] Nodes don't agree about configuration!")
         else:
             xprint("[OK] All nodes agree about slots configuration.")
@@ -21,7 +21,7 @@ class CheckCluster:
     def _check_open_slots(self):
         xprint(">>> Check for open slots...")
         open_slots = {}
-        for n, migrating, importing in self._nodes.opened_slots():
+        for n, migrating, importing in self._get_opened_slots():
             if len(migrating) > 0:
                 xprint(self._warn_opened_slot(n, 'migrating', migrating.keys()))
                 open_slots.union(set(migrating.keys()))
@@ -35,7 +35,7 @@ class CheckCluster:
 
     def _check_slots_coverage(self):
         xprint(">>> Check slots coverage...")
-        covered_slots = self._nodes.covered_slots()
+        covered_slots = self._get_covered_slots()
         if len(covered_slots) == CLUSTER_HASH_SLOTS:
             xprint(f"[OK] All {CLUSTER_HASH_SLOTS} slots covered.")
         else:

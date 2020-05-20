@@ -1,4 +1,5 @@
 from .cluster_node import ClusterNode, ClusterNodes
+from more_itertools import first_true
 
 
 class NodeFactory:
@@ -43,7 +44,7 @@ class NodesFactory:
                 slave = NodeFactory.create_empty_node(slave_addr, password) 
                 slave.master_addr = master_addr
                 nodes.append(slave)
-        return ClusterNodes(nodes)
+        return nodes
 
     @classmethod
     def create_nodes_with_friends(cls, addr, password):
@@ -57,9 +58,18 @@ class NodesFactory:
             fnode = NodeFactory.create_friend_node(faddr, password)
             if fnode:
                 nodes.append(fnode)
-    
-        _cluster_nodes = ClusterNodes(nodes)
-        _cluster_nodes.populate_nodes_replicas_info()
 
-        return _cluster_nodes
+        cls._populate_nodes_replicas_info(nodes)
+
+        return nodes
+
+    @classmethod
+    def _populate_nodes_replicas_info(cls, nodes):
+        for n in nodes:
+            if n.is_slave():
+                master = first_true(nodes, pred=lambda m: m.is_my_replica(n))
+                if not master:
+                    # TODO: print warning message
+                    continue
+                master.add_replica(n)
 
