@@ -5,6 +5,7 @@ from redis_trib.command import (
     check_cluster_command,
     add_node_command,
     delete_node_command,
+    reshard_cluster_command,
 )
 
 
@@ -54,6 +55,20 @@ def add_node(addr, new_addr, password, is_slave, master_id, addr_as_master):
 @click.option('-r', '--rename-command', 'rename_commands', multiple=True)
 def del_node(addr, del_node_id, password, rename_commands):
     delete_node_command(addr, del_node_id, password, rename_commands)
+
+
+@cli.command()
+@click.argument('addr')
+@click.option('-f', '--from', 'from_ids')
+@click.option('-t', '--to', 'to_id')
+@click.option('-p', '--password')
+@click.option('--timeout', type=int, default=60)
+@click.option('--pipeline', type=int, default=10)
+@click.option('--slots', 'num_slots', type=int)
+@click.option('-y', '--yes', 'yes', is_flag=True)
+def reshard(addr, password, from_ids, to_id, pipeline, timeout, num_slots, yes):
+    reshard_cluster_command(addr, password, from_ids, to_id,
+            pipeline, timeout, num_slots, yes)
 
 
 if __name__ == '__main__':

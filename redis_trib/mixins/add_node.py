@@ -1,3 +1,4 @@
+from ..util import xprint
 
 class AddNode:
 
@@ -6,9 +7,9 @@ class AddNode:
     def add(self, new_node, is_slave=False, master_addr=None, master_id=None):
         self._add_node(new_node)
         self._join_cluster([new_node])
-        if self._is_slave:
-            master = self._get_master_nodes(master_id, master_addr) 
-            self._set_replication(master, new_node)
+        if is_slave:
+            master = self._get_master_node(master_id, master_addr) 
+            self._wait_and_replicate_master(master, new_node)
 
     def _wait_and_replicate_master(self, master, new_node):
         self._wait_cluster_join()

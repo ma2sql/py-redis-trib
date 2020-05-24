@@ -1,4 +1,4 @@
-from .cluster_node import ClusterNode, ClusterNodes
+from .cluster_node import ClusterNode
 from more_itertools import first_true
 
 

@@ -12,15 +12,18 @@ def create_cluster_command(addrs, password, replicas, user_custom):
         role_distribution = OriginalRoleDistribution(nodes, replicas)
     redis_trib.create_cluster(role_distribution)
 
+
 def info_cluster_command(addr, password):
     nodes = NodesFactory.create_nodes_with_friends(addr, password)
     redis_trib = RedisTrib(nodes)
     redis_trib.show()
 
+
 def check_cluster_command(addr, password):
     nodes = NodesFactory.create_nodes_with_friends(addr, password)
     redis_trib = RedisTrib(nodes)
     redis_trib.check()
+
 
 def add_node_command(addr, new_addr, password, is_slave, master_id, addr_as_master):
     nodes = NodesFactory.create_nodes_with_friends(addr, password)
@@ -31,7 +34,19 @@ def add_node_command(addr, new_addr, password, is_slave, master_id, addr_as_mast
     redis_trib = RedisTrib(nodes)
     redis_trib.add(new_node, is_slave, master_id, master_addr)
 
+
 def delete_node_command(addr, del_node_id, password, rename_commands):
     nodes = NodesFactory.create_nodes_with_friends(addr, password)
     redis_trib = RedisTrib(nodes)
     redis_trib.delete(del_node_id, rename_commands)
+
+
+def reshard_cluster_command(addr, password, from_ids, to_id,
+        pipeline, timeout, num_slots, yes):
+    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    redis_trib = RedisTrib(nodes, password)
+    redis_trib.check()
+    redis_trib.reshard_cluster(from_ids, to_id, pipeline, timeout, num_slots, yes=False)
+
+
+

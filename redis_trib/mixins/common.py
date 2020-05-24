@@ -2,6 +2,8 @@ import time
 from functools import reduce
 from more_itertools import first_true
 
+from ..util import xprint
+
 
 class Common:
     
@@ -54,3 +56,10 @@ class Common:
 
     def _replcate_master(self, master, replica):
         replica.cluster_replicate(master.node_id)
+
+    def _cluster_error(self, msg):
+        self._errros.append(msg)
+        xprint(msg)
+
+    def _get_errors(self, msg):
+        return self._msg

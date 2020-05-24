@@ -8,6 +8,11 @@ from .const import CLUSTER_HASH_SLOTS
 import time
 
 class ClusterNode:
+    _STABLE = 'STABLE'
+    _IMPORTING = 'IMPORTING'
+    _MIGRATING = 'MIGRATING'
+    _NODE = 'NODE'
+
     def __init__(self, addr, password=None, master_addr=None):
         s = addr.split('@')[0].split(':')
         if len(s) < 2:
@@ -207,12 +212,21 @@ class ClusterNode:
 
         return parsed_slots, migrating, importing
 
-    def add_slots(self, slots):
+    def add_slots(self, slots, new=True):
         if isinstance(slots, (list, tuple, range)):
-            self._slots.update({s: False for s in slots})
+            self._slots.update({s: new for s in slots})
         else:
-            self._slots.update({slots: False})
-        self._dirty = True
+            self._slots.update({slots: new})
+
+        if new:
+            self._dirty = True
+
+    def del_slots(self, slots):
+        if not isinstance(slots, (list, tuple, range)):
+            slots = [slots] 
+
+        self._slots = {s: v for s, v in self._slots.items()
+                       if s not in slots}
 
     def set_as_replica(self, master_id):
         self._replicate = master_id
@@ -229,8 +243,8 @@ class ClusterNode:
                 xprint(f"[ERROR] {self._replicate} {e}")
                 return
         else:
-            _slots = {s: True for s, assigned in self._slots.items()
-                              if not assigned}
+            _slots = {s: False for s, new in self._slots.items()
+                               if new}
             self._slots.update(_slots)
             self._r.cluster("ADDSLOTS", *_slots.keys())
 
@@ -285,6 +299,32 @@ class ClusterNode:
     def cluster_forget(self, node_id):
         self._r.cluster('FORGET', node_id)
 
+    def cluster_setslot_importing(self, slot, target):
+        self._cluster_setslot(slot, ClusterNode._IMPORTING, target.node_id)
+
+    def cluster_setslot_migrating(self, slot, target):
+        self._cluster_setslot(slot, ClusterNode._MIGRATING, target.node_id)
+
+    def cluster_setslot_stable(self, slot):
+        self._cluster_setslot(slot, ClusterNode._STABLE)
+
+    def cluster_setslot_node(self, slot, target):
+        self._cluster_setslot(slot, ClusterNode._NODE, target.node_id)
+
+    def _cluster_setslot(self, slot, subcommand, node_id=None):
+        cluster_setslot_cmd = ['SETSLOT', slot, subcommand]
+        if node_id:
+            cluster_setslot_cmd.append(node_id)
+        self._r.cluster(*cluster_setslot_cmd)
+
+    def cluster_get_keys_in_slot(self, slot, pipeline):
+        self._r.cluster('GETKEYSINSLOT', slot, pipeline)
+
+    def migrate(self, host, port, keys_in_slot, timeout=None,
+            auth=None, copy=False, replace=False):
+        self._r.migrate(host, port, keys_in_slot, 0, timeout,
+                copy, replace, auth)
+
     def shutdown(self, rename_commands):
         shutdown_commands = ['SHUTDOWN']
         if rename_commands:
@@ -302,164 +342,3 @@ class ClusterNode:
             raise BaseException(f"Failed to shutdown {self}")
 
 
-class ClusterNodes:
-    def __init__(self, nodes=None):
-        self._nodes = nodes or []
-
-    def __iter__(self):
-        for n in self._nodes:
-            yield n
-
-    def __len__(self):
-        return len(self._nodes)
-
-    @property
-    def masters(self):
-        return [n for n in self if n.is_master()]
-
-    def add_node(self, node):
-        self._nodes.append(node)
- 
-    def get_master(self, node):
-        return first_true(self, pred=lambda m: m.node_id == node.replicate)
-
-    def is_config_consistent(self):
-        signatures=[]
-        for n in self:
-            signatures.append(n.get_config_signature())
-        return len(set(signatures)) == 1
-    
-    def wait_cluster_join(self):
-        print("Waiting for the cluster to join")
-        while not self.is_config_consistent():
-            print(".", end="", flush=True)
-            time.sleep(1)
-        print()
-
-    def opened_slots(self):
-        for n in self: 
-            yield n, n.migrating, n.importing
-           
-    def covered_slots(self):
-        return reduce(lambda a, b: {**a, **b.slots}, self, {})
-
-    def show_nodes(self):
-        for n in self:
-            print(n.info_string())
-
-    def alloc_slots(self):
-        slots_per_node = float(CLUSTER_HASH_SLOTS) / len(self.masters)
-        first = 0
-        cursor = 0.0
-        for i, m in enumerate(self.masters):
-            last = round(cursor + slots_per_node - 1)
-            if last > CLUSTER_HASH_SLOTS or i == len(self.masters) - 1:
-                last = CLUSTER_HASH_SLOTS - 1
-            if last < first:
-                last = first
-            m.add_slots(list(range(first, last+1)))
-            first = last+1
-            cursor += slots_per_node
-
-    def flush_nodes_config(self):
-        for n in self:
-            n.flush_node_config()
-
-    def assign_config_epoch(self):
-        for config_epoch, m in enumerate(self.masters, 1):
-            xprint(f"[WARNING] {m}: {config_epoch}")
-            m.set_config_epoch(config_epoch)
-
-    def join_all_cluster(self):
-        first = self._nodes[0]
-        for n in self._nodes[1:]:
-            n.cluster_meet(first.host, first.port)
-
-    def join_cluster(self, new_node):
-        first = self._nodes[0]
-        new_node.cluster_meet(first.host, first.port)
-
-    def get_anti_affinity_score(self):
-        score = 0
-        # List of offending slaves to return to the caller
-        offending = []
-        # First, split nodes by host
-        host_to_node = group_by(self, key=lambda n: n.host)
-    
-        # Then, for each set of nodes in the same host, split by
-        # related nodes (masters and slaves which are involved in
-        # replication of each other)
-        for host, nodes in host_to_node.items():
-            related = collections.defaultdict(list)
-            for n in nodes:
-                if n.replicate:
-                    related[n.replicate].append('s')
-                else:
-                    related[n.node_id].append('m')
-    
-            # Now it's trivial to check, for each related group having the
-            # same host, what is their local score.
-            for node_id, types in related.items():
-                if len(types) < 2:
-                    continue
-                # Make sure :m if the first if any
-                sorted_types = sorted(types)
-                if sorted_types[0] == 'm':
-                    score += 10000 * (len(types) -1)
-                else:
-                    score += 1 * len(types)
-    
-                # Populate the list of offending node
-                for n in nodes:
-                    if n.replicate == node_id and n.host == host:
-                        offending.append(n)
-        
-        return score, offending
-    
-    def evaluate_anti_affinity(self):
-        score, *_ = self.get_anti_affinity_score()
-        if score == 0:
-            xprint("[OK] Perfect anti-affinity obtained!")
-        elif score >= 10000:
-            xprint("[WARNING] Some slaves are in the same host as their master")
-        else:
-            xprint("[WARNING] Some slaves of the same master are in the same host")
-    
-    def is_config_consistent(self):
-        signatures=[]
-        for n in self:
-            signatures.append(n.get_config_signature())
-        return len(set(signatures)) == 1
-    
-    def wait_cluster_join(self):
-        print("Waiting for the cluster to join")
-        while not self.is_config_consistent():
-            print(".", end="", flush=True)
-            time.sleep(1)
-        print()
-
-    def get_node_by_name(self, node_id):
-        return first_true(self, pred=lambda m: m.node_id == node_id)
-
-    def get_master_with_least_replicas(self):
-        return sorted(self.masters, key=lambda n: len(n.replicas))[0]
-
-    def replcate_master(self, master, replica):
-        replica.cluster_replicate(master.node_id)
-
-    def forget_node(self, deleting_node):
-        for node in self._nodes:
-            if node == deleting_node:
-                continue
-
-            if (node.is_slave() 
-                and node.replicate.lower() == deleting_node.node_id.lower()):
-
-                master = self._nodes.get_master_with_least_replicas()
-                xprint(f">>> {node} as replica of {master}")
-                node.cluster_replicate(master.node_id)
-
-            node.cluster_forget(deleting_node.node_id)
-
-    def shutdown_node(self, deleting_node, rename_commands):
-        deleting_node.shutdown(rename_commands)
