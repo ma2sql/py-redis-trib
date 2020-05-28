@@ -49,4 +49,12 @@ def reshard_cluster_command(addr, password, from_ids, to_id,
     redis_trib.reshard_cluster(from_ids, to_id, pipeline, timeout, num_slots, yes=False)
 
 
+def rebalance_cluster_command(addr, password, weights, use_empty_masters,
+        pipeline, timeout, threshold, simulate):
+    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    redis_trib = RedisTrib(nodes, password)
+    redis_trib.check()
+    redis_trib.rebalance_cluster(weights, use_empty_masters, pipeline, timeout, threshold, simulate)
+
+
 

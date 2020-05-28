@@ -23,6 +23,22 @@ class Common:
     def _get_node_by_addr(self, addr):
         return first_true(self._nodes, pred=lambda n: n.addr == addr)
 
+    def _get_node_by_abbreviated_id(self, abbreviated_id):
+        '''
+        Like get_node_by_name but the specified name can be just the first
+        part of the node ID as long as the prefix in unique across the
+        cluster.
+        '''
+        l = len(abbreviated_id)
+        candidates = [n for n in self._nodes
+                      if n.node_id[:l] == abbreviated_id]
+        
+        if len(candidates) != 1:
+            raise CannotFindNode(f"Too many nodes were found, or not found: "\
+                    f"abbreviated_id={abbreviated_id} found={candidates}")
+
+        return candidates[0]
+
     def _get_master_with_least_replicas(self):
         sorted_masters = sorted(self._get_masters(),
                              key=lambda n: len(n.replicas))
@@ -63,3 +79,12 @@ class Common:
 
     def _get_errors(self, msg):
         return self._msg
+
+    def _get_slot_owners(self, slot):
+        owners = []
+        for n in self._get_masters():
+            if n.slots.get(slot):
+                owners.append(n)
+
+        return owners
+

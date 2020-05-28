@@ -6,8 +6,9 @@ class CheckCluster:
 
     __slots__ = ()
 
-    def check(self):
-        self._show_nodes()
+    def check(self, quiet=False):
+        if not quiet:
+            self._show_nodes()
         self._check_config_consistency()
         self._check_open_slots()
         self._check_slots_coverage()

@@ -6,6 +6,7 @@ from redis_trib.command import (
     add_node_command,
     delete_node_command,
     reshard_cluster_command,
+    rebalance_cluster_command,
 )
 
 
@@ -59,9 +60,9 @@ def del_node(addr, del_node_id, password, rename_commands):
 
 @cli.command()
 @click.argument('addr')
+@click.option('-p', '--password')
 @click.option('-f', '--from', 'from_ids')
 @click.option('-t', '--to', 'to_id')
-@click.option('-p', '--password')
 @click.option('--timeout', type=int, default=60)
 @click.option('--pipeline', type=int, default=10)
 @click.option('--slots', 'num_slots', type=int)
@@ -69,6 +70,19 @@ def del_node(addr, del_node_id, password, rename_commands):
 def reshard(addr, password, from_ids, to_id, pipeline, timeout, num_slots, yes):
     reshard_cluster_command(addr, password, from_ids, to_id,
             pipeline, timeout, num_slots, yes)
+
+@cli.command()
+@click.argument('addr')
+@click.option('-p', '--password')
+@click.option('--weights')
+@click.option('--use-empty-masters', is_flag=True)
+@click.option('--pipeline', type=int, default=10)
+@click.option('--timeout', type=int, default=60)
+@click.option('--threshold', type=int, default=2)
+@click.option('--simulate', is_flag=True)
+def rebalance(addr, password, weights, use_empty_masters, pipeline, timeout, threshold, simulate):
+    rebalance_cluster_command(addr, password, weights, use_empty_masters, 
+            pipeline, timeout, threshold, simulate)
 
 
 if __name__ == '__main__':

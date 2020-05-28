@@ -34,6 +34,8 @@ class ClusterNode:
         self._friends = []
         self._cluster_nodes = None
         self._dbsize = None
+        self._weight = None
+        self._balance = 0
 
     def __eq__(self, obj):
         return self is obj
@@ -92,6 +94,22 @@ class ClusterNode:
     @property
     def importing(self):
         return self._importing
+
+    @property
+    def balance(self):
+        return self._balance
+
+    @balance.setter
+    def balance(self, new_balance):
+        self._balance = new_balance
+
+    @property
+    def weight(self):
+        return self._weight
+
+    @weight.setter
+    def weight(self, new_weight):
+        self._weight = new_weight
 
     def is_slave(self):
         return self.replicate is not None
@@ -299,8 +317,17 @@ class ClusterNode:
     def cluster_forget(self, node_id):
         self._r.cluster('FORGET', node_id)
 
-    def cluster_setslot_importing(self, slot, target):
-        self._cluster_setslot(slot, ClusterNode._IMPORTING, target.node_id)
+    def cluster_addslots(self, *slot):
+        self._r.cluster('ADDSLOTS', *slot)
+
+    def cluster_delslots(self, *slot):
+        self._r.cluster('DELSLOTS', *slot)
+
+    def cluster_bumpepoch(self):
+        self._r.cluster('BUMPEPOCH')
+
+    def cluster_setslot_importing(self, slot, source):
+        self._cluster_setslot(slot, ClusterNode._IMPORTING, source.node_id)
 
     def cluster_setslot_migrating(self, slot, target):
         self._cluster_setslot(slot, ClusterNode._MIGRATING, target.node_id)
@@ -318,12 +345,15 @@ class ClusterNode:
         self._r.cluster(*cluster_setslot_cmd)
 
     def cluster_get_keys_in_slot(self, slot, pipeline):
-        self._r.cluster('GETKEYSINSLOT', slot, pipeline)
+        return self._r.cluster('GETKEYSINSLOT', slot, pipeline)
+
+    def cluster_count_keys_in_slot(self, slot):
+        return self._r.cluster('COUNTKEYSINSLOT', slot)
 
     def migrate(self, host, port, keys_in_slot, timeout=None,
             auth=None, copy=False, replace=False):
         self._r.migrate(host, port, keys_in_slot, 0, timeout,
-                copy, replace, auth)
+                copy=copy, replace=replace, auth=auth)
 
     def shutdown(self, rename_commands):
         shutdown_commands = ['SHUTDOWN']

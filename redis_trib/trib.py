@@ -1,10 +1,12 @@
 from .mixins import (
-    Common, CreateCluster, CheckCluster, ReshardCluster,
-    ShowCluster, AddNode, DelNode
+    Common, CreateCluster, CheckCluster,
+    ShowCluster, AddNode, DelNode,
+    MoveSlot, ReshardCluster, RebalanceCluster
 )
 
 
-class RedisTrib(Common, CreateCluster, CheckCluster, ReshardCluster,
+class RedisTrib(Common, CreateCluster, CheckCluster,
+                MoveSlot, ReshardCluster, RebalanceCluster, 
                 ShowCluster, AddNode, DelNode):
 
     def __init__(self, nodes, password=None):
