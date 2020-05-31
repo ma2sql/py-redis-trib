@@ -2,6 +2,8 @@ from .trib import RedisTrib
 from .distribution import OriginalRoleDistribution, CustomRoleDistribution  
 from .factory import NodeFactory, NodesFactory
 
+from .xprint import xprint, LOG_LEVEL_INFO
+xprint.set_loglevel(LOG_LEVEL_INFO)
 
 def create_cluster_command(addrs, password, replicas, user_custom):
     nodes = NodesFactory.create_new_nodes(addrs, password)
@@ -57,4 +59,33 @@ def rebalance_cluster_command(addr, password, weights, use_empty_masters,
     redis_trib.rebalance_cluster(weights, use_empty_masters, pipeline, timeout, threshold, simulate)
 
 
+def fix_cluster_command(addr, password):
+    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    redis_trib = RedisTrib(nodes, password)
+    redis_trib.check()
+    redis_trib.fix()
+
+
+def call_cluster_command(addr, password, *command):
+    import sys, os
+    old_stdout = sys.stdout
+    try:
+        f = open(os.devnull, 'w')
+        sys.stdout = f
+
+        nodes = NodesFactory.create_nodes_with_friends(addr, password)
+        redis_trib = RedisTrib(nodes, password)
+        redis_trib.check(quiet=True)
+    finally:
+        if f: f.close()
+        sys.stdout = old_stdout
+
+    redis_trib.call(*command)
+
+
+def import_cluster_command(addr, password, from_addr, from_password, replace, copy):
+    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    redis_trib = RedisTrib(nodes, password)
+    redis_trib.check()
+    redis_trib.import_cluster(from_addr, from_password, replace, copy)
 

@@ -7,7 +7,14 @@ from redis_trib.command import (
     delete_node_command,
     reshard_cluster_command,
     rebalance_cluster_command,
+    fix_cluster_command,
+    call_cluster_command,
+    import_cluster_command,
 )
+from redis_trib.monkey_patch import patch_click_module
+
+
+patch_click_module()
 
 
 @click.group()
@@ -17,31 +24,35 @@ def cli():
 
 @cli.command()
 @click.argument('addrs', nargs=-1)
-@click.option('-p', '--password')
+@click.verbose_option()
+@click.password_option()
 @click.option('-r', '--replicas', type=int, default=0)
 @click.option('-c', '--user-custom', is_flag=True)
-def create(addrs, password, replicas, user_custom):
+def create(addrs, verbose, password, replicas, user_custom):
     create_cluster_command(addrs, password, replicas, user_custom)
 
 
 @cli.command()
 @click.argument('addr')
-@click.option('-p', '--password')
+@click.verbose_option()
+@click.password_option()
 def info(addr, password):
     info_cluster_command(addr, password)
 
 
 @cli.command()
 @click.argument('addr')
-@click.option('-p', '--password')
-def check(addr, password):
+@click.verbose_option()
+@click.password_option()
+def check(addr, verbose, password):
     check_cluster_command(addr, password)
 
 
 @cli.command()
 @click.argument('new_addr')
 @click.argument('addr')
-@click.option('-p', '--password')
+@click.verbose_option()
+@click.password_option()
 @click.option('-m', '--master-id')
 @click.option('-r', '--addr-as-master', is_flag=True)
 @click.option('-s', '--slave', 'is_slave', is_flag=True)
@@ -52,6 +63,7 @@ def add_node(addr, new_addr, password, is_slave, master_id, addr_as_master):
 @cli.command()
 @click.argument('addr')
 @click.argument('del_node_id')
+@click.verbose_option()
 @click.option('-p', '--password')
 @click.option('-r', '--rename-command', 'rename_commands', multiple=True)
 def del_node(addr, del_node_id, password, rename_commands):
@@ -83,6 +95,32 @@ def reshard(addr, password, from_ids, to_id, pipeline, timeout, num_slots, yes):
 def rebalance(addr, password, weights, use_empty_masters, pipeline, timeout, threshold, simulate):
     rebalance_cluster_command(addr, password, weights, use_empty_masters, 
             pipeline, timeout, threshold, simulate)
+
+
+@cli.command()
+@click.argument('addr')
+@click.option('-p', '--password')
+def fix(addr, password):
+    fix_cluster_command(addr, password)
+
+
+@cli.command()
+@click.argument('addr')
+@click.argument('command', nargs=-1)
+@click.option('-p', '--password')
+def call(addr, password, command):
+    call_cluster_command(addr, password, *command)
+
+
+@cli.command('import')
+@click.argument('addr')
+@click.option('-p', '--password')
+@click.option('--from-password')
+@click.option('--from', 'from_addr')
+@click.option('--replace', is_flag=True)
+@click.option('--copy', is_flag=True)
+def import_(addr, password, from_addr, from_password, replace, copy):
+    import_cluster_command(addr, password, from_addr, from_password, replace, copy)
 
 
 if __name__ == '__main__':

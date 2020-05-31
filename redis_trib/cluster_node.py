@@ -1,11 +1,17 @@
 import redis
-from .util import xprint, group_by
+from .util import group_by, summarize_slots
+from .xprint import xprint
 from .exceptions import AssertEmptyError
 from more_itertools import first_true
 from functools import reduce
 import collections
 from .const import CLUSTER_HASH_SLOTS
 import time
+from functools import wraps
+
+from .monkey_patch import patch_redis_module
+patch_redis_module()
+
 
 class ClusterNode:
     _STABLE = 'STABLE'
@@ -16,7 +22,7 @@ class ClusterNode:
     def __init__(self, addr, password=None, master_addr=None):
         s = addr.split('@')[0].split(':')
         if len(s) < 2:
-            print(f"Invalid IP or Port (given as {addr}) - use IP:Port format")
+            xprint.error(f"Invalid IP or Port (given as {addr}) - use IP:Port format")
             sys.exit(1)
         
         self._host = ':'.join(s[:-1])
@@ -134,18 +140,18 @@ class ClusterNode:
     def connect(self, abort=False):
         if self._r:
             return
-        print(f"Connecting to node {self}: ", end="")
+        xprint.verbose(f"Connecting to node {self}: ", end="")
         try:
             self._r = redis.StrictRedis(self.host, self.port,
                                         password=self._password,
-                                        socket_timeout=60)
+                                        socket_timeout=60, decode_responses=True)
             self._r.ping()
         except redis.exceptions.ConnectionError:
-            xprint(f"[ERR] Sorry, can't connect to node '{self}'")
+            xprint.error(f"Sorry, can't connect to node '{self}'")
             if abort:
                 raise CannotConnectToRedis(f"[ERR] Sorry, can't connect to node '{self}'")
             self._r = None
-        xprint("OK")
+        xprint.verbose("OK", ignore_header=True)
 
     def assert_cluster(self):
         cluster_enabled = self._r.info().get('cluster_enabled') or 0
@@ -174,10 +180,10 @@ class ClusterNode:
                 self._flags = flags
                 if n['master_id'] != '-':
                     self._replicate = n['master_id']
-                (slots, migrating, importing) = self._parse_slots(n['slots'])
+                slots = self._parse_slots(n['slots'])
                 self.add_slots(slots)
-                self._migrating = migrating
-                self._importing = importing
+                self._migrating = n['migrating']
+                self._importing = n['importing']
                 self._dirty = False
                 break
 
@@ -207,20 +213,9 @@ class ClusterNode:
 
     def _parse_slots(self, slots):
         parsed_slots = []
-        migrating = {}
-        importing = {}
         for s in slots:
-            # ["[5461", ">", "b35b55daf26e84acdf17fed30d46ca97ccdd9169]"]
-            if len(s) == 3:
-                slot, direction, target = s
-                slot = int(slot[1:])
-                target = target[:-1]
-                if direction == '>':
-                    migrating[slot] = target
-                elif direction == '<':
-                    importing[slot] = target
             # ["0", "5460"]
-            elif len(s) == 2:
+            if len(s) == 2:
                 start = int(s[0])
                 end = int(s[1]) + 1
                 parsed_slots += list(range(start, end))
@@ -228,7 +223,7 @@ class ClusterNode:
             else:
                 parsed_slots += [int(s[0])]
 
-        return parsed_slots, migrating, importing
+        return parsed_slots
 
     def add_slots(self, slots, new=True):
         if isinstance(slots, (list, tuple, range)):
@@ -251,31 +246,22 @@ class ClusterNode:
         self._dirty = True
 
     def flush_node_config(self):
-        xprint(f"[WARN] {self}: {self._dirty}")
         if not self._dirty: return
 
         if self._replicate:
             try:
                 self.cluster_replicate(self._replicate)
             except redis.exceptions.ResponseError as e:
-                xprint(f"[ERROR] {self._replicate} {e}")
+                xprint.warning(f"Replication Error: node_id={self._replicate}, error={e}")
                 return
         else:
             _slots = {s: False for s, new in self._slots.items()
                                if new}
             self._slots.update(_slots)
-            self._r.cluster("ADDSLOTS", *_slots.keys())
+            self.cluster_addslots(*_slots.keys())
 
         self._dirty = False
            
-    def _summarize_slots(self, slots):
-        _temp_slots = []
-        for slot in sorted(slots):
-            if not _temp_slots or _temp_slots[-1][-1] != (slot-1): 
-                _temp_slots.append([])
-            _temp_slots[-1][1:] = [slot]
-        return ','.join(map(lambda slot_exp: '-'.join(map(str, slot_exp)), _temp_slots)) 
-   
     def info_string(self):
         role = "M" if "master" in self._flags else "S" 
         info_str = ""
@@ -283,7 +269,7 @@ class ClusterNode:
             info_str = f"S: {self._replicate} {self}"
         else:
             info_str = f"{role}: {self._node_id} {self}\n"\
-                       f"   slots:{self._summarize_slots(self._slots)} ({len(self._slots)} slots) "\
+                       f"   slots:{summarize_slots(self._slots)} ({len(self._slots)} slots) "\
                        f"{','.join(filter(lambda flag: flag != 'myself', self._flags))}"
         if self._replicate:
             info_str += f"\n   replicates {self._replicate}"
@@ -305,10 +291,10 @@ class ClusterNode:
         self._refresh_cluster_nodes()
         config = []
         for n in self._get_cluster_nodes().values():
-            slots, *_ = self._parse_slots(n['slots'])
+            slots = self._parse_slots(n['slots'])
             if 'master' not in self._parse_flags(n['flags']):
                 continue
-            config.append(f"{n['node_id']}:{self._summarize_slots(slots)}")
+            config.append(f"{n['node_id']}:{summarize_slots(slots)}")
         return '|'.join(sorted(config))
 
     def cluster_replicate(self, master_id):
@@ -355,20 +341,24 @@ class ClusterNode:
         self._r.migrate(host, port, keys_in_slot, 0, timeout,
                 copy=copy, replace=replace, auth=auth)
 
-    def shutdown(self, rename_commands):
-        shutdown_commands = ['SHUTDOWN']
+    def shutdown(self, rename_commands=None):
+        try:
+            self._execute_with_rename_commands('SHUTDOWN',
+                    rename_commands=rename_commands)
+        except redis.exceptions.ConnectionError:
+            pass
+
+    def _execute_with_rename_commands(self, *args, rename_commands):
+        commands = [args[0]]
         if rename_commands:
-            shutdown_commands += rename_commands
+            commands += rename_commands 
 
-        for cmd in shutdown_commands:
+        for cmd in commands:
             try:
-                self._r.execute_command(cmd)
+                xprint(f"Trying to execute {cmd} command")
+                return self._r.execute_command(cmd, *args[1:])
             except redis.exceptions.ResponseError as e:
-                xprint(f"[WARN] {e}")
-                continue
-            except redis.exceptions.ConnectionError:
-                break
+                xprint.verbose(f"{e}")
         else:
-            raise BaseException(f"Failed to shutdown {self}")
-
+            raise BaseException("Failed to execute renamed-commands")
 

@@ -2,27 +2,16 @@ from itertools import (
     groupby
 )
 import sys
-from termcolor import colored, cprint
-
-# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
-# https://en.wikipedia.org/wiki/ANSI_escape_code#3/4_bit
-_MESSAGE_COLOR = {
-    ">>>": (None,     ["bold"]),
-    "[ER": ("red",    ["bold"]),
-    "[WA": ("red",    ["bold"]),
-    "[OK": ("green",  []),
-    "[FA": ("yellow", []),
-    "***": ("yellow", []),
-}
-
-def xprint(msg):
-    header = msg[:3]
-    color, attrs = _MESSAGE_COLOR.get(header) or (None, None)
-    cprint(msg, color, attrs=attrs)
+from .xprint import xprint
 
 
 def group_by(iterable, key):
     return {k: list(v) for k, v in groupby(sorted(iterable, key=key), key=key)}
+
+
+def chunk(iterable, size):
+    for i in range(0, len(iterable), size):
+        yield iterable[i:i+size]
 
 
 def query_yes_no(question, default=None):
@@ -38,12 +27,21 @@ def query_yes_no(question, default=None):
     prompt = f" [{y}/{n}] "
 
     while True:
-        print(f"> {question}{prompt}", file=sys.stderr, end='')
+        xprint(f"> {question}{prompt}", file=sys.stderr, end='')
         choice = input().strip().lower()
         if default is not None and choice == '':
             return default
         elif choice in _valid.keys():
             return _valid[choice]
         else:
-            print(f"> Please respond with 'yes' or 'no' (or 'y' or 'n').", file=sys.stderr)
+            xprint(f"> Please respond with 'yes' or 'no' (or 'y' or 'n').", file=sys.stderr)
+ 
 
+def summarize_slots(slots):
+    _temp_slots = []
+    for slot in sorted(slots):
+        if not _temp_slots or _temp_slots[-1][-1] != (slot-1): 
+            _temp_slots.append([])
+        _temp_slots[-1][1:] = [slot]
+    return ','.join(map(lambda slot_exp: '-'.join(map(str, slot_exp)), _temp_slots)) 
+   

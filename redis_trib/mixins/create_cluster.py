@@ -1,12 +1,13 @@
 import itertools
-import more_itertools
 import abc
 import random
 import time
 
+from ..exceptions import RedisTribError
 from ..const import CLUSTER_HASH_SLOTS
-from ..util import xprint, group_by
+from ..util import group_by, query_yes_no
 from ..cluster_node import ClusterNode
+from ..xprint import xprint
 
 
 class CreateCluster:
@@ -22,7 +23,9 @@ class CreateCluster:
         self._alloc_slots()
         self._show_nodes()
 
-        # yes_or_die "Can I set the above configuration?"
+        if not query_yes_no("Can I set the above configuration?", default=False):
+            raise RedisTribError("Aborted to created cluster")
+             
         self._flush_nodes_config()
 
         xprint(">>> Nodes configuration updated")
@@ -35,6 +38,8 @@ class CreateCluster:
         time.sleep(1)
         self._wait_cluster_join()
         self._flush_nodes_config()
+
+        xprint.ok("Creating cluster succeed")
 
     def _alloc_slots(self):
         masters = self._get_masters()
@@ -62,7 +67,7 @@ class CreateCluster:
 
     def _assign_config_epoch(self):
         for config_epoch, m in enumerate(self._get_masters(), 1):
-            xprint(f"[WARNING] {m}: {config_epoch}")
+            xprint.verbose(f"{m}: {config_epoch}")
             m.set_config_epoch(config_epoch)
 
     def _join_all_cluster(self):

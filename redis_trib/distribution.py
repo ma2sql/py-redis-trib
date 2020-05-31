@@ -5,6 +5,8 @@ import more_itertools
 from .exceptions import UnassignedNodesRemain
 from .util import group_by
 
+from .xprint import xprint
+
 
 class RoleDistribution(abc.ABC):
     @abc.abstractmethod
@@ -73,14 +75,13 @@ class OriginalRoleDistribution(RoleDistribution):
                     if len(self._interleaved) == 0:
                         break
 
-                    if assignment_verbose:
-                        if assign == OriginalRoleDistribution._REQUESTED:
-                            print(f"Requesting total of {self._replicas} replicas "\
-                                  f"({assigned_replicas} replicas assigned "\
-                                  f"so far with {len(self._interleaved)} total remaining).")
-                        elif assign == OriginalRoleDistribution._UNUSED:
-                            print(f"Assigning extra instance to replication "\
-                                  f"role too ({len(self._interleaved)} remaining).")
+                    if assign == OriginalRoleDistribution._REQUESTED:
+                        xprint.verbose(f"Requesting total of {self._replicas} replicas "\
+                                       f"({assigned_replicas} replicas assigned "\
+                                       f"so far with {len(self._interleaved)} total remaining).")
+                    elif assign == OriginalRoleDistribution._UNUSED:
+                        xprint.verbose(f"Assigning extra instance to replication "\
+                                       f"role too ({len(self._interleaved)} remaining).")
 
                     # Return the first node not matching our current master
                     node = more_itertools.first_true(self._interleaved,
@@ -97,7 +98,7 @@ class OriginalRoleDistribution(RoleDistribution):
 
                     slave.set_as_replica(m.node_id)
                     assigned_replicas += 1
-                    print(f"Adding replica {slave} to {m}")
+                    xprint.verbose(f"Adding replica {slave} to {m}")
 
                     # If we are in the "assign extra nodes" loop,
                     # we want to assign one extra replica to each
@@ -108,11 +109,11 @@ class OriginalRoleDistribution(RoleDistribution):
                         break
             
         if self._interleaved:
-            xprint(f"[ERROR] {self._interleaved}")
+            xprint.error(f"{self._interleaved}")
             raise UnassignedNodesRemain(f"Unassigned nodes remain: {len(self._interleaved)}")
 
     def _optimize_anti_affinity(self):
-        print(">>> Trying to optimize slaves allocation for anti-affinity")
+        xprint(">>> Trying to optimize slaves allocation for anti-affinity")
 
         # Effort is proportional to cluster size...
         maxiter = 500 * len(self._nodes) 
@@ -187,11 +188,11 @@ class OriginalRoleDistribution(RoleDistribution):
     def _evaluate_anti_affinity(self):
         score, *_ = self._get_anti_affinity_score()
         if score == 0:
-            xprint("[OK] Perfect anti-affinity obtained!")
+            xprint.ok("Perfect anti-affinity obtained!")
         elif score >= 10000:
-            xprint("[WARNING] Some slaves are in the same host as their master")
+            xprint.warning("Some slaves are in the same host as their master")
         else:
-            xprint("[WARNING] Some slaves of the same master are in the same host")
+            xprint.warning("Some slaves of the same master are in the same host")
  
 
 class CustomRoleDistribution(RoleDistribution):
@@ -205,10 +206,10 @@ class CustomRoleDistribution(RoleDistribution):
     def _check_create_parameters(self):
         master_nodes = [n for n in self._nodes if not n.master_addr]
         if len(master_nodes) < 3:
-            xprint(f"""*** ERROR: Invalid configuration for cluster creation.\n"""
-                   f"""*** Redis Cluster requires at least 3 master nodes.\n"""
-                   f"""*** This is not possible with {len(master_nodes)} nodes.\n"""
-                   f"""*** At least 3 master nodes are required.\n""")
+            xprint.error(f"""*** ERROR: Invalid configuration for cluster creation.\n"""
+                         f"""*** Redis Cluster requires at least 3 master nodes.\n"""
+                         f"""*** This is not possible with {len(master_nodes)} nodes.\n"""
+                         f"""*** At least 3 master nodes are required.\n""")
             raise CreateClusterException('Invalid configuration for cluster creation')
 
     def _set_replication(self):

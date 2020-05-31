@@ -17,26 +17,26 @@ class MoveSlot:
     # :cold    -- Move keys without opening slots / reconfiguring the nodes.
     # :update  -- Update nodes.info[:slots] for source/target nodes.
     # :quiet   -- Don't print info messages.
-    def _move_slot(self, source, target, slot, **opt):
+    def _move_slot(self, source, target, slot, pipeline=10, update=True, dot=False, cold=False, quiet=True, fix=False):
         # We start marking the slot as importing in the destination node,
         # and the slot as migrating in the target host. Note that the order of
         # the operations is important, as otherwise a client may be redirected
         # to the target node that does not yet know it is importing this slot.
-        if not opt.get('quiet'):
+        if not quiet:
             print(f"Moving slot {slot} from {source} to {target}: ", end="")
             
-        if not opt.get('cold'):
+        if not cold:
             target.cluster_setslot_importing(slot, source)
             source.cluster_setslot_migrating(slot, target)
 
         timeout = 60
         # Migrate all the keys from source to target using the MIGRATE command
-        while (keys_in_slot := source.cluster_get_keys_in_slot(slot, opt.get('pipeline'))):
+        while (keys_in_slot := source.cluster_get_keys_in_slot(slot, pipeline)):
             try:
                 source.migrate(target.host, target.port, keys_in_slot, timeout,
                                auth=self._password)
             except redis.exceptions.ResponseError as e:
-                if opt.get('fix') and str(e).find('BUSYKEY'):
+                if fix and str(e).find('BUSYKEY'):
                     xprint("*** Target key exists. Replacing it for FIX.")
                     source.migrate(target.host, target.port, keys_in_slot,
                         timeout, auth=self._password, replace=True)
@@ -48,17 +48,17 @@ class MoveSlot:
                 print("." * len(keys_in_slot))
 
 
-        # Set the new node as the owner of the slot in all the known nodes.
-        if not opt.get('quiet'):
+        if not quiet:
             print()
 
+        # Set the new node as the owner of the slot in all the known nodes.
         #if opt.get('cold') is not None:
         if True:
             for n in self._get_masters():
                 n.cluster_setslot_node(slot, target)
 
         # Update the node logical config
-        if opt.get('update'):
+        if update:
             source.del_slots(slot)
             target.add_slots(slot, new=False)
 

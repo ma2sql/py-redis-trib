@@ -59,9 +59,6 @@ class Common:
         for n in self._nodes: 
             yield n, n.migrating, n.importing
 
-    def _get_covered_slots(self):
-        return reduce(lambda a, b: {**a, **b.slots}, self._nodes, {})
-
     def _add_node(self, node):
         self._nodes.append(node)
 
@@ -88,3 +85,6 @@ class Common:
 
         return owners
 
+    def _get_covered_slots(self):
+        return set(slot for n in self._nodes
+                        for slot in n.slots.keys())

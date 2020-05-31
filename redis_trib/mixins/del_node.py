@@ -1,4 +1,5 @@
 from ..util import xprint
+import redis
 
 class ClusterNodesError(Exception): pass
 
@@ -39,10 +40,16 @@ class DelNode:
         node.cluster_replicate(master.node_id)
 
     def _shutdown_node(self, deleting_node, rename_commands):
+        error = None
         try:
             deleting_node.shutdown(rename_commands)
+        except redis.exceptions.ConnectionError:
+            pass
         except BaseException as e:
-            xprint(f"[ERR] {e}") 
+            error = e
+
+        if error:
+            xprint(f"[ERR] {error}") 
         else:
             xprint(f"[OK] SHUTDOWN is complete")
 

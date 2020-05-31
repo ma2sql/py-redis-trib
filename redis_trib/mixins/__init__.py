@@ -7,3 +7,7 @@ from .del_node import DelNode
 from .move_slot import MoveSlot
 from .reshard_cluster import ReshardCluster
 from .rebalance_cluster import RebalanceCluster
+from .fix_cluster import FixCluster
+from .call_cluster import CallCluster
+from .import_cluster import ImportCluster
+
