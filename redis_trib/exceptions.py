@@ -1,13 +1,14 @@
 
-class ClusterNodeException(Exception): pass
-class CannotConnectToRedis(ClusterNodeException): pass
+class RedisTribException(Exception): pass
 
-class ClusterNodeError(Exception): pass
-class AssertClusterError(ClusterNodeError): pass
-class AssertEmptyError(ClusterNodeError): pass
+class AbortedByUserException(RedisTribException): pass
 
-class RedisTribError(Exception): pass
-class TooSmallMastersError(RedisTribError): pass
+class NodeException(Exception): pass
+class NodeConnectionException(NodeException): pass
+class AssertNodeException(NodeException): pass
+class LoadInfoFailureException(NodeException): pass
+
+class TooSmallMastersError(RedisTribException): pass
 
 class CreateClusterException(Exception): pass
 class UnassignedNodesRemain(CreateClusterException): pass

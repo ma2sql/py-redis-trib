@@ -1,19 +1,23 @@
 import redis
-from .util import group_by, summarize_slots
-from .xprint import xprint
-from .exceptions import AssertEmptyError
-from more_itertools import first_true
-from functools import reduce
-import collections
-from .const import CLUSTER_HASH_SLOTS
 import time
+import collections
+
+from .xprint import xprint
+from .const import CLUSTER_HASH_SLOTS
 from functools import wraps
+from .util import group_by, summarize_slots
+from .exceptions import (
+    NodeConnectionException,
+    AssertNodeException,
+    LoadInfoFailureException,
+)
+
 
 from .monkey_patch import patch_redis_module
 patch_redis_module()
 
 
-class ClusterNode:
+class Node:
     _STABLE = 'STABLE'
     _IMPORTING = 'IMPORTING'
     _MIGRATING = 'MIGRATING'
@@ -137,26 +141,25 @@ class ClusterNode:
     def add_replica(self, node):
         self.replicas.append(node)
 
-    def connect(self, abort=False):
+    def connect(self):
         if self._r:
             return
         xprint.verbose(f"Connecting to node {self}: ", end="")
         try:
             self._r = redis.StrictRedis(self.host, self.port,
                                         password=self._password,
-                                        socket_timeout=60, decode_responses=True)
+                                        socket_timeout=5, decode_responses=True)
             self._r.ping()
-        except redis.exceptions.ConnectionError:
-            xprint.error(f"Sorry, can't connect to node '{self}'")
-            if abort:
-                raise CannotConnectToRedis(f"[ERR] Sorry, can't connect to node '{self}'")
+        except redis.exceptions.RedisError as e:
+            xprint.verbose("FAIL", ignore_header=True)
             self._r = None
+            raise NodeConnectionException(f"Sorry, can't connect to node '{self}'. Reason: {e}")
         xprint.verbose("OK", ignore_header=True)
 
     def assert_cluster(self):
         cluster_enabled = self._r.info().get('cluster_enabled') or 0
         if int(cluster_enabled) != 1:
-            raise AssertClusterError(f"[ERR] Node {self} is not configured as a cluster node.")
+            raise AssertNodeException(f"Node {self} is not configured as a cluster node.")
 
     def assert_empty(self):
         cluster_known_nodes = self._r.cluster('INFO').get('cluster_known_nodes') or 0
@@ -164,9 +167,10 @@ class ClusterNode:
         keyspace = self._r.info().get('db0')
 
         if (keyspace or cluster_known_nodes != 1):
-            raise AssertEmptyError(f"[ERR] Node {self} is not empty. "
-                                   f"Either the node already knows other nodes (check with CLUSTER NODES)"
-                                   f" or contains some key in database 0.")
+            raise AssertNodeException(f"Node {self} is not empty. "
+                                      f"Either the node already knows other nodes "
+                                      f"(check with CLUSTER NODES)"
+                                      f" or contains some key in database 0.")
         self._dbsize = keyspace and keyspace.get('keys')
 
     def load_info(self):
@@ -196,7 +200,10 @@ class ClusterNode:
         return self._cluster_nodes
 
     def _refresh_cluster_nodes(self):
-        self._cluster_nodes = self._r.cluster('NODES')
+        try:
+            self._cluster_nodes = self._r.cluster('NODES')
+        except redis.exceptions.ResponseError as e:
+            raise LoadInfoFailureException(e)
 
     @property
     def dbsize(self):

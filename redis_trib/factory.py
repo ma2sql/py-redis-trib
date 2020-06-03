@@ -1,20 +1,26 @@
-from .cluster_node import ClusterNode
+from .cluster_node import Node
+from .exceptions import (
+    NodeConnectionException,
+    LoadInfoFailureException,
+)
+from .xprint import xprint
 from more_itertools import first_true
+
 
 
 class NodeFactory:
     @classmethod
     def create_normal_node(cls, addr, password):
-        node = ClusterNode(addr, password)
-        node.connect(abort=True)
+        node = Node(addr, password)
+        node.connect()
         node.assert_cluster()
         node.load_info()
         return node
 
     @classmethod
     def create_empty_node(cls, addr, password):
-        node = ClusterNode(addr, password)
-        node.connect(abort=True)
+        node = Node(addr, password)
+        node.connect()
         node.assert_cluster()
         node.load_info()
         node.assert_empty()
@@ -22,13 +28,15 @@ class NodeFactory:
 
     @classmethod
     def create_friend_node(cls, addr, password):
-        node = ClusterNode(addr, password)
-        node.connect(abort=False)
+        node = Node(addr, password)
         try:
+            node.connect()
             node.load_info() 
             return node
-        except redis.exceptions.ResponseError as e:
-            xprint(f"[ERR] Unable to load info for node {fnode}: {e}")
+        except NodeConnectionException as e:
+            xprint.error(e)
+        except LoadInfoFailureException as e:
+            xprint.error(f"Unable to load info for node {fnode}: {e}")
         return None
 
 

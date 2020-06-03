@@ -1,15 +1,24 @@
 from .trib import RedisTrib
-from .distribution import OriginalRoleDistribution, CustomRoleDistribution  
 from .factory import NodeFactory, NodesFactory
+from .xprint import xprint
+from .exceptions import (
+    RedisTribException,
+    NodeException,
+    AbortedByUserException
+)
 
-def create_cluster_command(addrs, password, replicas, user_custom):
-    nodes = NodesFactory.create_new_nodes(addrs, password)
-    redis_trib = RedisTrib(nodes)
-    if user_custom:
-        role_distribution = CustomRoleDistribution(nodes)
-    else:
-        role_distribution = OriginalRoleDistribution(nodes, replicas)
-    redis_trib.create_cluster(role_distribution)
+
+def create_cluster_command(addrs, password, replicas, user_custom, yes):
+    try:
+        nodes = NodesFactory.create_new_nodes(addrs, password)
+        redis_trib = RedisTrib(nodes)
+        redis_trib.create_cluster(
+            RedisTrib.create_role_distribution(
+                nodes, user_custom, replicas), yes)
+    except AbortedByUserException as e:
+        xprint.warning(e)
+    except (RedisTribException, NodeException) as e:
+        xprint.error(e)
 
 
 def info_cluster_command(addr, password):
