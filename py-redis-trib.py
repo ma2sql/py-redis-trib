@@ -36,7 +36,7 @@ def create(addrs, verbose, password, replicas, user_custom):
 @click.argument('addr')
 @click.verbose_option()
 @click.password_option()
-def info(addr, password):
+def info(addr, verbose, password):
     info_cluster_command(addr, password)
 
 

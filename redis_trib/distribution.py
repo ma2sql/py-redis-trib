@@ -215,6 +215,6 @@ class CustomRoleDistribution(RoleDistribution):
     def _set_replication(self):
         for n in self._nodes:
             if n.master_addr:
-                master = first_true(self._nodes, pred=lambda m: m.addr == n.master_addr) 
+                master = more_itertools.first_true(self._nodes, pred=lambda m: m.addr == n.master_addr) 
                 n.set_as_replica(master.node_id)
 

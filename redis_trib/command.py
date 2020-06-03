@@ -2,9 +2,6 @@ from .trib import RedisTrib
 from .distribution import OriginalRoleDistribution, CustomRoleDistribution  
 from .factory import NodeFactory, NodesFactory
 
-from .xprint import xprint, LOG_LEVEL_INFO
-xprint.set_loglevel(LOG_LEVEL_INFO)
-
 def create_cluster_command(addrs, password, replicas, user_custom):
     nodes = NodesFactory.create_new_nodes(addrs, password)
     redis_trib = RedisTrib(nodes)

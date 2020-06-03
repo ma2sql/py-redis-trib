@@ -87,3 +87,15 @@ class MoveSlot:
 
         return moved
 
+
+    def _compute_reshard_table_by_range(self, slots_range):
+        moved = []
+        for slot in slots_range:
+            owners = self._get_slot_owners(slot)
+            if len(owners) != 1:
+                raise BaseException(f'Too many owners: {owners}') 
+             
+            moved.append((owners[0], slot))
+
+        return moved 
+

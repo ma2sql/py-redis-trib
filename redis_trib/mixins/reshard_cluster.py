@@ -8,7 +8,7 @@ class ReshardCluster:
 
     __slots__ = ()
 
-    def reshard_cluster(self, from_ids, to_id, pipeline, timeout, num_slots, yes=False):
+    def reshard_cluster(self, from_ids, to_id, pipeline, timeout, num_slots, slots_range, yes=False):
         target = self._get_master_by_id(to_id)
         sources = [self._get_master_by_id(_id)
                    for _id in from_ids.split(',') or []]

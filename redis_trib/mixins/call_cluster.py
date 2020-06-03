@@ -1,5 +1,6 @@
 from ..util import xprint
 import json
+import redis
 
 
 class CallCluster:
@@ -12,8 +13,8 @@ class CallCluster:
             result = None
             try:
                 result = n.r.execute_command(*command)
-            except BaseException as e:
-                result = 'ERROR!'
+            except redis.exceptions.ResponseError as e:
+                result = str(e)
             results[str(n)] = result
 
         print(json.dumps(results, indent=4))

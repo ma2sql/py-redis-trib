@@ -23,7 +23,7 @@ class NodeFactory:
     @classmethod
     def create_friend_node(cls, addr, password):
         node = ClusterNode(addr, password)
-        node.connect()
+        node.connect(abort=False)
         try:
             node.load_info() 
             return node
