@@ -108,7 +108,7 @@ class RebalanceCluster:
             if n.is_master():
                 if not use_empty_masters and len(n.slots) == 0:
                     continue
-                n.weight = _w if (_w := weights.get(n.node_id)) is not None else 1 
+                n.weight = weights.get(n.node_id) or 1
                 total_weight += n.weight
                 nodes_involved += 1
 
