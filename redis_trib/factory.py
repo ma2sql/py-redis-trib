@@ -7,7 +7,6 @@ from .xprint import xprint
 from more_itertools import first_true
 
 
-
 class NodeFactory:
     @classmethod
     def create_normal_node(cls, addr, password):
@@ -57,6 +56,8 @@ class NodesFactory:
     @classmethod
     def create_nodes_with_friends(cls, addr, password):
         nodes = []
+        unreachable_masters = 0
+
         node = NodeFactory.create_normal_node(addr, password)
         nodes.append(node)
 
@@ -66,10 +67,13 @@ class NodesFactory:
             fnode = NodeFactory.create_friend_node(faddr, password)
             if fnode:
                 nodes.append(fnode)
+            elif 'master' in flags:
+                unreachable_masters += 1
+
 
         cls._populate_nodes_replicas_info(nodes)
 
-        return nodes
+        return nodes, unreachable_masters
 
     @classmethod
     def _populate_nodes_replicas_info(cls, nodes):

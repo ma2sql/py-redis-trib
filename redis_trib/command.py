@@ -22,19 +22,19 @@ def create_cluster_command(addrs, password, replicas, user_custom, yes):
 
 
 def info_cluster_command(addr, password):
-    nodes = NodesFactory.create_nodes_with_friends(addr, password)
-    redis_trib = RedisTrib(nodes)
+    nodes, unreachable_masters = NodesFactory.create_nodes_with_friends(addr, password)
+    redis_trib = RedisTrib(nodes, unreachable_masters=unreachable_masters)
     redis_trib.show()
 
 
 def check_cluster_command(addr, password):
-    nodes = NodesFactory.create_nodes_with_friends(addr, password)
-    redis_trib = RedisTrib(nodes)
+    nodes, unreachable_masters = NodesFactory.create_nodes_with_friends(addr, password)
+    redis_trib = RedisTrib(nodes, unreachable_masters=unreachable_masters)
     redis_trib.check()
 
 
 def add_node_command(addr, new_addr, password, is_slave, master_id, addr_as_master):
-    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    nodes, _ = NodesFactory.create_nodes_with_friends(addr, password)
     master_addr = addr if addr_as_master else None
     if master_id or master_addr:
         is_slave = True
@@ -44,14 +44,14 @@ def add_node_command(addr, new_addr, password, is_slave, master_id, addr_as_mast
 
 
 def delete_node_command(addr, del_node_id, password, rename_commands):
-    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    nodes, _ = NodesFactory.create_nodes_with_friends(addr, password)
     redis_trib = RedisTrib(nodes)
     redis_trib.delete(del_node_id, rename_commands)
 
 
 def reshard_cluster_command(addr, password, from_ids, to_id,
         pipeline, timeout, num_slots, yes):
-    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    nodes, _ = NodesFactory.create_nodes_with_friends(addr, password)
     redis_trib = RedisTrib(nodes, password)
     redis_trib.check()
     redis_trib.reshard_cluster(from_ids, to_id, pipeline, timeout, num_slots, yes=False)
@@ -59,14 +59,14 @@ def reshard_cluster_command(addr, password, from_ids, to_id,
 
 def rebalance_cluster_command(addr, password, weights, use_empty_masters,
         pipeline, timeout, threshold, simulate):
-    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    nodes, _ = NodesFactory.create_nodes_with_friends(addr, password)
     redis_trib = RedisTrib(nodes, password)
     redis_trib.check()
     redis_trib.rebalance_cluster(weights, use_empty_masters, pipeline, timeout, threshold, simulate)
 
 
 def fix_cluster_command(addr, password):
-    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    nodes, _ = NodesFactory.create_nodes_with_friends(addr, password)
     redis_trib = RedisTrib(nodes, password)
     redis_trib.check()
     redis_trib.fix()
@@ -79,7 +79,7 @@ def call_cluster_command(addr, password, *command):
         f = open(os.devnull, 'w')
         sys.stdout = f
 
-        nodes = NodesFactory.create_nodes_with_friends(addr, password)
+        nodes, _ = NodesFactory.create_nodes_with_friends(addr, password)
         redis_trib = RedisTrib(nodes, password)
         redis_trib.check(quiet=True)
     finally:
@@ -90,7 +90,7 @@ def call_cluster_command(addr, password, *command):
 
 
 def import_cluster_command(addr, password, from_addr, from_password, replace, copy):
-    nodes = NodesFactory.create_nodes_with_friends(addr, password)
+    nodes, _ = NodesFactory.create_nodes_with_friends(addr, password)
     redis_trib = RedisTrib(nodes, password)
     redis_trib.check()
     redis_trib.import_cluster(from_addr, from_password, replace, copy)

@@ -5,6 +5,7 @@ import redis
 class IsNotMasterNode(Exception): pass
 class NotExistNode(Exception): pass
 
+
 class MoveSlot:
 
     __slots__ = ()
@@ -41,15 +42,15 @@ class MoveSlot:
                     source.migrate(target.host, target.port, keys_in_slot,
                         timeout, auth=self._password, replace=True)
                 else:
-                    print("")
-                    xprint(f"[ERR] Calling MIGRATE: {e}")
+                    xprint("")
+                    xprint.error(f"Calling MIGRATE: {e}")
 
             if True:
-                print("." * len(keys_in_slot))
+                xprint("." * len(keys_in_slot))
 
 
         if not quiet:
-            print()
+            xprint()
 
         # Set the new node as the owner of the slot in all the known nodes.
         #if opt.get('cold') is not None:

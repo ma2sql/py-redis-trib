@@ -121,6 +121,19 @@ class Node:
     def weight(self, new_weight):
         self._weight = new_weight
 
+    @property
+    def dbsize(self):
+        if not self._dbsize:
+            self._dbsize = self._r.dbsize()
+        return self._dbsize
+
+    @property
+    def friends(self):
+        for addr, n in  self._get_cluster_nodes().items():
+            flags = self._parse_flags(n['flags'])
+            if 'myself' not in flags:
+                yield addr, flags
+
     def is_slave(self):
         return self.replicate is not None
 
@@ -204,19 +217,6 @@ class Node:
             self._cluster_nodes = self._r.cluster('NODES')
         except redis.exceptions.ResponseError as e:
             raise LoadInfoFailureException(e)
-
-    @property
-    def dbsize(self):
-        if not self._dbsize:
-            self._dbsize = self._r.dbsize()
-        return self._dbsize
-
-    @property
-    def friends(self):
-        for addr, n in  self._get_cluster_nodes().items():
-            flags = self._parse_flags(n['flags'])
-            if 'myself' not in flags:
-                yield addr, flags
 
     def _parse_slots(self, slots):
         parsed_slots = []

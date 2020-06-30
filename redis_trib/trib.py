@@ -10,9 +10,9 @@ class RedisTrib(Common, CreateCluster, CheckCluster,
                 MoveSlot, ReshardCluster, RebalanceCluster, FixCluster,
                 ShowCluster, AddNode, DelNode, CallCluster, ImportCluster):
 
-    def __init__(self, nodes, password=None):
+    def __init__(self, nodes, password=None, unreachable_masters=0):
         self._nodes = nodes
         self._password = password
-        self._errors = []
+        self._num_errors = 0
         self._unreachable_masters = 0
 

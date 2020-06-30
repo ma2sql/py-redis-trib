@@ -70,12 +70,11 @@ class Common:
     def _replcate_master(self, master, replica):
         replica.cluster_replicate(master.node_id)
 
-    def _cluster_error(self, msg):
-        self._errros.append(msg)
-        xprint(msg)
+    def _increase_num_errors(self):
+        self._num_errors += 1
 
-    def _get_errors(self, msg):
-        return self._msg
+    def _has_errors(self):
+        return self._num_errors == 0
 
     def _get_slot_owners(self, slot):
         owners = []
