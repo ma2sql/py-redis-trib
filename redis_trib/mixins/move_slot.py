@@ -32,7 +32,11 @@ class MoveSlot:
 
         timeout = 60
         # Migrate all the keys from source to target using the MIGRATE command
-        while (keys_in_slot := source.cluster_get_keys_in_slot(slot, pipeline)):
+        while True:
+            keys_in_slot = source.cluster_get_keys_in_slot(slot, pipeline)
+            if len(keys_in_slot) == 0:
+                break
+
             try:
                 source.migrate(target.host, target.port, keys_in_slot, timeout,
                                auth=self._password)
