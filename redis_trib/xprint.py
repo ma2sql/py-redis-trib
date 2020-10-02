@@ -76,6 +76,11 @@ class XPrint:
     def fail(self, *msg, **kwargs):
         self._xprint(_LOG_FAIL, *msg, **kwargs)
 
+    def quiet_or_not(self, quiet):
+        if quiet:
+            return lambda *msg, **kwargs: None
+        return self._xprint
+
 
 xprint = XPrint()
 
