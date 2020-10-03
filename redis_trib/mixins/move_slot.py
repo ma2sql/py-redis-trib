@@ -10,8 +10,6 @@ class NotExistNode(Exception): pass
 @contextmanager
 def move_slot_context(slot, source, target, cold=False, update=False):
     if not cold:
-        target.cluster_setslot_importing(slot, source)
-        source.cluster_setslot_migrating(slot, target)
 
     yield
 
@@ -24,47 +22,65 @@ def move_slot_context(slot, source, target, cold=False, update=False):
         target.add_slots(slot, new=False)
 
 
-
 class MoveSlot:
 
     __slots__ = ()
 
-    # Move slots between source and target nodes using MIGRATE.
-    #
-    # Options:
-    # :verbose -- Print a dot for every moved key.
-    # :fix     -- We are moving in the context of a fix. Use REPLACE.
-    # :cold    -- Move keys without opening slots / reconfiguring the nodes.
-    # :update  -- Update nodes.info[:slots] for source/target nodes.
-    # :quiet   -- Don't print info messages.
+
+    def _set_importing_and_migrating(self, source, target):
+        target.cluster_setslot_importing(slot, source)
+        source.cluster_setslot_migrating(slot, target)
+   
+
+    def _notify_new_owner(self, source, target):
+        target.cluster_setslot_node(slot, target)
+        source.cluster_setslot_node(slot, target)
+        for n in [n for n in self._get_masters()
+                    if n not in (source, target)]:
+            n.cluster_setslot_node(slot, target)
+
+
+    def _update_node_config(self, source, target):
+        source.del_slots(slot)
+        target.add_slots(slot, new=False)
+
+
     def _move_slot(self, source, target, slot, pipeline=10, timeout=60,
-                         update=True, dot=False, cold=False, quiet=True, fix=False):
+                         update=True, cold=False, quiet=True, fix=False):
         quiet_or_not = xprint.quiet_or_not(quiet)
 
         quiet_or_not(f"Moving slot {slot} from {source} to {target}: ", end="")
 
-        with move_slot_context(slot, source, target, cold, update):
-            while True:
-                keys_in_slot = source.cluster_get_keys_in_slot(slot, pipeline)
-                if len(keys_in_slot) == 0:
-                    break
+        if not cold:
+           self._set_importing_and_migrating(source, target) 
+
+        while True:
+            keys_in_slot = source.cluster_get_keys_in_slot(slot, pipeline)
+            if len(keys_in_slot) == 0:
+                break
     
-                try:
-                    source.migrate(target.host, target.port, keys_in_slot, timeout,
-                                   auth=self._password)
-                except redis.exceptions.ResponseError as e:
-                    if fix and str(e).find('BUSYKEY'):
-                        xprint("*** Target key exists. Replacing it for FIX.")
-                        source.migrate(target.host, target.port, keys_in_slot,
-                            timeout, auth=self._password, replace=True)
-                    else:
-                        xprint("")
-                        xprint.error(f"Calling MIGRATE: {e}")
+            try:
+                source.migrate(target.host, target.port, keys_in_slot, timeout,
+                               auth=self._password)
+            except redis.exceptions.ResponseError as e:
+                if fix and str(e).find('BUSYKEY'):
+                    xprint("*** Target key exists. Replacing it for FIX.")
+                    source.migrate(target.host, target.port, keys_in_slot,
+                        timeout, auth=self._password, replace=True)
+                else:
+                    xprint("")
+                    xprint.error(f"Calling MIGRATE: {e}")
+   
+            quiet_or_not("." * len(keys_in_slot))
+
+        quiet_or_not()
+
+        if not cold:
+            self._notify_new_owner(source, target)
+
+        if update:
+            self._update_node_config(source, target)
     
-                if True:
-                    quiet_or_not("." * len(keys_in_slot))
-    
-            queit_or_not()
 
 
     def _compute_reshard_table(self, sources, num_slots):
