@@ -6,22 +6,6 @@ class IsNotMasterNode(Exception): pass
 class NotExistNode(Exception): pass
 
 
-
-@contextmanager
-def move_slot_context(slot, source, target, cold=False, update=False):
-    if not cold:
-
-    yield
-
-    if not cold:
-        for n in self._get_masters():
-            n.cluster_setslot_node(slot, target)
-
-    if update:
-        source.del_slots(slot)
-        target.add_slots(slot, new=False)
-
-
 class MoveSlot:
 
     __slots__ = ()
