@@ -129,5 +129,15 @@ def import_(addr, password, from_addr, from_password, replace, copy):
     import_cluster_command(addr, password, from_addr, from_password, replace, copy)
 
 
+@cli.command('backup')
+@click.argument('addr')
+@click.verbose_option()
+@click.password_option()
+def backup(addr, password):
+    pass
+
+
+
+
 if __name__ == '__main__':
     cli()
