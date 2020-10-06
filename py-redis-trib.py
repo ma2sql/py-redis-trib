@@ -25,12 +25,11 @@ def cli():
 @cli.command()
 @click.argument('addrs', nargs=-1)
 @click.option('-r', '--replicas', type=int, default=0)
-@click.option('-c', '--user-custom', is_flag=True)
 @click.option('-y', '--yes', 'yes', is_flag=True)
 @click.password_option()
 @click.verbose_option()
-def create(addrs, verbose, password, replicas, user_custom, yes):
-    create_cluster_command(addrs, password, replicas, user_custom, yes)
+def create(addrs, verbose, password, replicas, yes):
+    create_cluster_command(addrs, password, replicas, yes)
 
 
 @cli.command()

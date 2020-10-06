@@ -73,8 +73,8 @@ class CreateCluster:
         self._join_cluster(self._nodes[1:])
 
     @classmethod    
-    def create_role_distribution(cls, nodes, user_custom, replicas):
-        if user_custom:
+    def create_role_distribution(cls, nodes, replicas):
+        if any(n for n in nodes if n.master_addr):
             return CustomRoleDistribution(nodes)
         return OriginalRoleDistribution(nodes, replicas)
 

@@ -18,10 +18,7 @@ class NodeFactory:
 
     @classmethod
     def create_empty_node(cls, addr, password):
-        node = Node(addr, password)
-        node.connect()
-        node.assert_cluster()
-        node.load_info()
+        node = NodeFactory.create_normal_node(addr, password)
         node.assert_empty()
         return node
 

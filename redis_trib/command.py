@@ -8,13 +8,12 @@ from .exceptions import (
 )
 
 
-def create_cluster_command(addrs, password, replicas, user_custom, yes):
+def create_cluster_command(addrs, password, replicas, yes):
     try:
         nodes = NodesFactory.create_new_nodes(addrs, password)
         redis_trib = RedisTrib(nodes)
         redis_trib.create_cluster(
-            RedisTrib.create_role_distribution(
-                nodes, user_custom, replicas), yes)
+            RedisTrib.create_role_distribution(nodes, replicas), yes)
     except AbortedByUserException as e:
         xprint.warning(e)
     except (RedisTribException, NodeException) as e:
