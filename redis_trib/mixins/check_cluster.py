@@ -3,6 +3,34 @@ from ..const import CLUSTER_HASH_SLOTS
 from ..xprint import xprint
 
 
+class Node:
+    def __init__(self, info):
+        self._info = info
+
+    def __str__(self):
+        return self._info['addr'] 
+
+    @property
+    def migrating(self):
+        return self._info.get('migrating')
+
+    @property
+    def importing(self):
+        return self._info.get('importing')
+
+
+class CheckOpenSlot:
+    def __init__(self, open_type):
+        self._open_type = open_type
+
+    def check_open_slot(self, node):
+        return getattr(node, self._open_type)
+
+
+IMPORTING = 'importing'
+MIGRATING = 'migrating'
+
+
 class CheckCluster:
 
     __slots__ = ()
@@ -20,6 +48,15 @@ class CheckCluster:
             xprint.error("Nodes don't agree about configuration!")
         else:
             xprint.ok("All nodes agree about slots configuration.")
+
+    def check_open_slots(self, nodes):
+        opened_slots = set()
+        for node in nodes:
+            for open_type in [MIGRATING, IMPORTING]:
+                slots = getattr(node, open_type) 
+                if slots:
+                    opened_slots = opened_slots.union(set(slots.keys()))
+        return opened_slots
 
     def _check_open_slots(self):
         xprint(">>> Check for open slots...")
@@ -56,3 +93,4 @@ class CheckCluster:
         return f"Node {node} has slots in {open_type} "\
                f"state {','.join(map(str, slots))}"
 
+        
