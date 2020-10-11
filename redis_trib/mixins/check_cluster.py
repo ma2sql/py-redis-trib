@@ -4,19 +4,24 @@ from ..xprint import xprint
 
 
 class Node:
-    def __init__(self, info):
-        self._info = info
+    def __init__(self, addr, node):
+        self._addr = addr
+        self._node = node
 
     def __str__(self):
-        return self._info['addr'] 
+        return self._addr
 
     @property
     def migrating(self):
-        return self._info.get('migrating')
+        return self._node.get('migrating')
 
     @property
     def importing(self):
-        return self._info.get('importing')
+        return self._node.get('importing')
+
+    @property
+    def config_signature(self):
+        pass
 
 
 class CheckOpenSlot:
@@ -24,7 +29,10 @@ class CheckOpenSlot:
         self._open_type = open_type
 
     def check_open_slot(self, node):
-        return getattr(node, self._open_type)
+        try:
+            return getattr(node, self._open_type)
+        except AttributeError:
+            return None
 
 
 IMPORTING = 'importing'
@@ -41,6 +49,11 @@ class CheckCluster:
         self._check_config_consistency()
         self._check_open_slots()
         self._check_slots_coverage()
+
+    def check_config_consistency(self, nodes):
+        for n in nodes:
+            xprint(n)
+        return True
 
     def _check_config_consistency(self):
         if not self._is_config_consistent():

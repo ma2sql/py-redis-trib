@@ -17,7 +17,7 @@ def patch_redis_module():
         importing = _parse_moving_slots(line_items[8:], '-<-')
         node_dict = {
             'node_id': node_id,
-            'flags': flags,
+            'flags': flags.split(','),
             'master_id': master_id,
             'last_ping_sent': ping,
             'last_pong_rcvd': pong,
