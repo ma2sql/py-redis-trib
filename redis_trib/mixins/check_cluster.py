@@ -12,6 +12,14 @@ class Node:
         return self._addr
 
     @property
+    def node_id(self):
+        return self._node.get('node_id')
+
+    @property
+    def slots(self):
+        return self._node.get('slots')
+
+    @property
     def migrating(self):
         return self._node.get('migrating')
 
@@ -19,9 +27,13 @@ class Node:
     def importing(self):
         return self._node.get('importing')
 
-    @property
-    def config_signature(self):
-        pass
+    def config_signature(self, nodes):
+        signature = []
+        for n in nodes:
+            slots = ','.join(sorted(n.slots.split(',')))
+            signature.append(f"{n.node_id}:{slots}")
+        return '|'.join(sorted(signature))
+            
 
 
 class CheckOpenSlot:
