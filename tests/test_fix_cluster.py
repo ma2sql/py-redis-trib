@@ -1,5 +1,5 @@
 import unittest
-from redis_trib.mixins.check_cluster import Node, CheckOpenSlot, CheckCluster
+from redis_trib.mixins.check_cluster import Node, Nodes, CheckOpenSlot, CheckCluster
 from redis_trib.trib import RedisTrib
 
 ## TODOs
@@ -32,7 +32,9 @@ class TestFixCluster(unittest.TestCase):
         node = self._nodes[0]
         print(node.config_signature(self._nodes))
         
-
+    def testSignatureConsistency(self):
+        nodes = Nodes(self._nodes)
+        self.assertTrue(nodes.is_config_consistent())
 
     def tearDown(self):
         pass

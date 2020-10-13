@@ -35,6 +35,13 @@ class Node:
         return '|'.join(sorted(signature))
             
 
+class Nodes:
+    def __init__(self, nodes):
+        self._nodes = nodes
+
+    def is_config_consistent(self):
+        return len(set(n.config_signature(self._nodes) for n in self._nodes)) == 1
+
 
 class CheckOpenSlot:
     def __init__(self, open_type):
