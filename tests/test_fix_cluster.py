@@ -1,6 +1,7 @@
 import unittest
 from redis_trib.mixins.check_cluster import Node, Nodes, CheckOpenSlot, CheckCluster
 from redis_trib.trib import RedisTrib
+from copy import deepcopy
 
 ## TODOs
 # - open slot에 대한 판단 검증
@@ -8,12 +9,22 @@ from redis_trib.trib import RedisTrib
 class TestFixCluster(unittest.TestCase):
 
     def setUp(self):
-        nodes_info = [
+        def _make_mynode(nodes, idx):
+            new_nodes = deepcopy(nodes)
+            mynode = new_nodes[idx]
+            mynode['flags'] = f"myself,{mynode['flags']}"
+            return new_nodes
+
+            
+
+        default_nodes_info = [
             {'node_id': 'abc', 'addr': '192.168.56.101:6789', 'flags': 'master', 'slots': '0-5460', 'migrating': {1: 'def'}},
             {'node_id': 'def', 'addr': '192.168.56.102:6789', 'flags': 'master', 'slots': '5461-10922', 'importing': {1: 'abc'}},
             {'node_id': 'ghi', 'addr': '192.168.56.103:6789', 'flags': 'master', 'slots': '10923-16383'},
         ]
-        self._nodes = [Node(n['addr'], n) for n in nodes_info]
+        self._nodes = list(map(lambda node: Node(node['addr'], node), nodes_info))
+
+
 
     def testCheckOpenSlot(self):
         check_migrating = CheckOpenSlot('migrating')
