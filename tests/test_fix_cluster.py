@@ -15,16 +15,15 @@ class TestFixCluster(unittest.TestCase):
             mynode['flags'] = f"myself,{mynode['flags']}"
             return new_nodes
 
-            
-
         default_nodes_info = [
             {'node_id': 'abc', 'addr': '192.168.56.101:6789', 'flags': 'master', 'slots': '0-5460', 'migrating': {1: 'def'}},
             {'node_id': 'def', 'addr': '192.168.56.102:6789', 'flags': 'master', 'slots': '5461-10922', 'importing': {1: 'abc'}},
             {'node_id': 'ghi', 'addr': '192.168.56.103:6789', 'flags': 'master', 'slots': '10923-16383'},
         ]
-        self._nodes = list(map(lambda node: Node(node['addr'], node), nodes_info))
-
-
+        self._nodes = []
+        for i, _ in enumerate(default_nodes_info):
+            mynodes =  _make_mynode(default_nodes_info, i)
+            self._nodes.append(Node(mynodes[i]['addr'], mynodes[i], mynodes[:i] + mynodes[i+1:]))
 
     def testCheckOpenSlot(self):
         check_migrating = CheckOpenSlot('migrating')
@@ -41,7 +40,7 @@ class TestFixCluster(unittest.TestCase):
 
     def testConfigConsistency(self):
         node = self._nodes[0]
-        print(node.config_signature(self._nodes))
+        print(node.config_signature())
         
     def testSignatureConsistency(self):
         nodes = Nodes(self._nodes)

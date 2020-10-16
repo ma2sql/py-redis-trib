@@ -4,9 +4,10 @@ from ..xprint import xprint
 
 
 class Node:
-    def __init__(self, addr, node):
+    def __init__(self, addr, node, friends):
         self._addr = addr
         self._node = node
+        self._friends = friends or []
 
     def __str__(self):
         return self._addr
@@ -27,11 +28,11 @@ class Node:
     def importing(self):
         return self._node.get('importing')
 
-    def config_signature(self, nodes):
+    def config_signature(self):
         signature = []
-        for n in nodes:
-            slots = ','.join(sorted(n.slots.split(',')))
-            signature.append(f"{n.node_id}:{slots}")
+        for n in [self._node] + self._friends:
+            slots = ','.join(sorted(n['slots'].split(',')))
+            signature.append(f"{n['node_id']}:{slots}")
         return '|'.join(sorted(signature))
             
 
@@ -40,7 +41,7 @@ class Nodes:
         self._nodes = nodes
 
     def is_config_consistent(self):
-        return len(set(n.config_signature(self._nodes) for n in self._nodes)) == 1
+        return len(set(n.config_signature() for n in self._nodes)) == 1
 
 
 class CheckOpenSlot:
