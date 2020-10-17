@@ -28,6 +28,10 @@ class Node:
     def importing(self):
         return self._node.get('importing')
 
+    @property
+    def friends(self):
+        return self._friends 
+
     def config_signature(self):
         signature = []
         for n in [self._node] + self._friends:
