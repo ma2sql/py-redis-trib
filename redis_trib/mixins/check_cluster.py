@@ -65,7 +65,8 @@ MIGRATING = 'migrating'
 
 class CheckCluster:
 
-    __slots__ = ()
+    def __init__(self):
+        pass
 
     def check(self, quiet=False):
         if not quiet:
@@ -73,11 +74,6 @@ class CheckCluster:
         self._check_config_consistency()
         self._check_open_slots()
         self._check_slots_coverage()
-
-    def check_config_consistency(self, nodes):
-        for n in nodes:
-            xprint(n)
-        return True
 
     def _check_config_consistency(self):
         if not self._is_config_consistent():

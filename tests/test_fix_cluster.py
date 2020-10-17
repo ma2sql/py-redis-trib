@@ -6,6 +6,14 @@ from copy import deepcopy
 ## TODOs
 # - open slot에 대한 판단 검증
 
+
+def fixture_cluster_nodes():
+    return [
+        {'node_id': 'abc', 'addr': '192.168.56.101:6789', 'flags': 'master', 'slots': '0-5460', 'migrating': {1: 'def'}},
+        {'node_id': 'def', 'addr': '192.168.56.102:6789', 'flags': 'master', 'slots': '5461-10922', 'importing': {1: 'abc'}},
+        {'node_id': 'ghi', 'addr': '192.168.56.103:6789', 'flags': 'master', 'slots': '10923-16383'},
+    ]
+
 class TestFixCluster(unittest.TestCase):
 
     def setUp(self):
@@ -15,11 +23,7 @@ class TestFixCluster(unittest.TestCase):
             mynode['flags'] = f"myself,{mynode['flags']}"
             return new_nodes
 
-        default_nodes_info = [
-            {'node_id': 'abc', 'addr': '192.168.56.101:6789', 'flags': 'master', 'slots': '0-5460', 'migrating': {1: 'def'}},
-            {'node_id': 'def', 'addr': '192.168.56.102:6789', 'flags': 'master', 'slots': '5461-10922', 'importing': {1: 'abc'}},
-            {'node_id': 'ghi', 'addr': '192.168.56.103:6789', 'flags': 'master', 'slots': '10923-16383'},
-        ]
+        default_nodes_info = fixture_cluster_nodes()
         self._nodes = []
         for i, _ in enumerate(default_nodes_info):
             mynodes =  _make_mynode(default_nodes_info, i)
