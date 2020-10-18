@@ -47,6 +47,10 @@ class Nodes:
     def is_config_consistent(self):
         return len(set(n.config_signature() for n in self._nodes)) == 1
 
+    def __iter__(self):
+        for node in self._nodes:
+            yield node
+
 
 class CheckOpenSlot:
     def __init__(self, open_type):
@@ -65,8 +69,9 @@ MIGRATING = 'migrating'
 
 class CheckCluster:
 
-    def __init__(self):
-        pass
+    def __init__(self, nodes=None):
+        self._nodes = nodes
+
 
     def check(self, quiet=False):
         if not quiet:
@@ -82,9 +87,9 @@ class CheckCluster:
         else:
             xprint.ok("All nodes agree about slots configuration.")
 
-    def check_open_slots(self, nodes):
+    def check_open_slots(self):
         opened_slots = set()
-        for node in nodes:
+        for node in self._nodes:
             for open_type in [MIGRATING, IMPORTING]:
                 slots = getattr(node, open_type) 
                 if slots:

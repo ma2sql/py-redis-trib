@@ -29,6 +29,7 @@ class TestFixCluster(unittest.TestCase):
             mynodes =  _make_mynode(default_nodes_info, i)
             self._nodes.append(Node(mynodes[i]['addr'], mynodes[i], mynodes[:i] + mynodes[i+1:]))
 
+
     def testCheckOpenSlot(self):
         check_migrating = CheckOpenSlot('migrating')
         opened_slot = check_migrating.check_open_slot(self._nodes[0])
@@ -37,18 +38,22 @@ class TestFixCluster(unittest.TestCase):
         opened_slot = check_importing.check_open_slot(self._nodes[1])
         self.assertDictEqual(opened_slot, {1: 'abc'})
 
-    def atestCheckOPenSlots(self):
-        check =  CheckCluster()
-        opened_slots = check.check_open_slots([self._node1, self._node2])
+
+    def testCheckOPenSlots(self):
+        check =  CheckCluster(Nodes(self._nodes))
+        opened_slots = check.check_open_slots()
         self.assertSetEqual(opened_slots, {1})
+
 
     def testConfigConsistency(self):
         node = self._nodes[0]
         print(node.config_signature())
         
+
     def testSignatureConsistency(self):
         nodes = Nodes(self._nodes)
         self.assertTrue(nodes.is_config_consistent())
+
 
     def tearDown(self):
         pass
