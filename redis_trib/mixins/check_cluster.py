@@ -32,6 +32,11 @@ class Node:
     def friends(self):
         return self._friends 
 
+    @property
+    def slots(self):
+        start, end = map(int, self._node['slots'].split('-'))
+        return range(start, end+1)
+
     def config_signature(self):
         signature = []
         for n in [self._node] + self._friends:
@@ -47,20 +52,14 @@ class Nodes:
     def is_config_consistent(self):
         return len(set(n.config_signature() for n in self._nodes)) == 1
 
+    @property
+    def covered_slots(self):
+        return set(slot for n in self
+                        for slot in n.slots)
+
     def __iter__(self):
         for node in self._nodes:
             yield node
-
-
-class CheckOpenSlot:
-    def __init__(self, open_type):
-        self._open_type = open_type
-
-    def check_open_slot(self, node):
-        try:
-            return getattr(node, self._open_type)
-        except AttributeError:
-            return None
 
 
 IMPORTING = 'importing'
@@ -114,6 +113,10 @@ class CheckCluster:
                            f"{','.join(map(str, open_slots))}")
 
         return open_slots
+
+    def check_slots_coverage(self):
+        return self._nodes.covered_slots
+
 
     def _check_slots_coverage(self):
         xprint(">>> Check slots coverage...")
