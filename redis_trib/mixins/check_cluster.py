@@ -52,17 +52,6 @@ class Nodes:
             yield node
 
 
-class CheckOpenSlot:
-    def __init__(self, open_type):
-        self._open_type = open_type
-
-    def check_open_slot(self, node):
-        try:
-            return getattr(node, self._open_type)
-        except AttributeError:
-            return None
-
-
 IMPORTING = 'importing'
 MIGRATING = 'migrating'
 

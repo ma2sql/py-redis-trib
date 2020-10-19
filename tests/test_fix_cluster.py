@@ -1,5 +1,5 @@
 import unittest
-from redis_trib.mixins.check_cluster import Node, Nodes, CheckOpenSlot, CheckCluster
+from redis_trib.mixins.check_cluster import Node, Nodes, CheckCluster
 from redis_trib.trib import RedisTrib
 from copy import deepcopy
 
@@ -30,16 +30,7 @@ class TestFixCluster(unittest.TestCase):
             self._nodes.append(Node(mynodes[i]['addr'], mynodes[i], mynodes[:i] + mynodes[i+1:]))
 
 
-    def testCheckOpenSlot(self):
-        check_migrating = CheckOpenSlot('migrating')
-        opened_slot = check_migrating.check_open_slot(self._nodes[0])
-        self.assertDictEqual(opened_slot, {1: 'def'})
-        check_importing = CheckOpenSlot('importing')
-        opened_slot = check_importing.check_open_slot(self._nodes[1])
-        self.assertDictEqual(opened_slot, {1: 'abc'})
-
-
-    def testCheckOPenSlots(self):
+    def testCheckOpenSlots(self):
         check =  CheckCluster(Nodes(self._nodes))
         opened_slots = check.check_open_slots()
         self.assertSetEqual(opened_slots, {1})
