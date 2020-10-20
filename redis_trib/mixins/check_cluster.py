@@ -3,6 +3,30 @@ from ..const import CLUSTER_HASH_SLOTS
 from ..xprint import xprint
 
 
+def summarize_slots(slots):
+    _temp_slots = []
+    for slot in sorted(slots):
+        if not _temp_slots or _temp_slots[-1][-1] != (slot-1): 
+            _temp_slots.append([])
+        _temp_slots[-1][1:] = [slot]
+    return ','.join(map(lambda slot_exp: '-'.join(map(str, slot_exp)), _temp_slots)) 
+
+
+def parse_slots(slots):
+    parsed_slots = []
+    for s in slots:
+        # ["0", "5460"]
+        if len(s) == 2:
+            start = int(s[0])
+            end = int(s[1]) + 1
+            parsed_slots += list(range(start, end))
+        # ["5462"]
+        else:
+            parsed_slots += [int(s[0])]
+
+    return parsed_slots
+
+
 class Node:
     def __init__(self, addr, node, friends):
         self._addr = addr
@@ -34,23 +58,18 @@ class Node:
 
     @property
     def slots(self):
-        start, end = map(int, self._node['slots'].split('-'))
-        return range(start, end+1)
-
+        return parse_slots(self._node['slots']) 
+   
     def config_signature(self):
         signature = []
         for n in [self._node] + self._friends:
-            slots = ','.join(sorted(n['slots'].split(',')))
-            signature.append(f"{n['node_id']}:{slots}")
+            signature.append(f"{n['node_id']}:{summarize_slots(parse_slots(n['slots']))}")
         return '|'.join(sorted(signature))
             
 
 class Nodes:
     def __init__(self, nodes):
         self._nodes = nodes
-
-    def is_config_consistent(self):
-        return len(set(n.config_signature() for n in self._nodes)) == 1
 
     @property
     def covered_slots(self):
@@ -70,7 +89,6 @@ class CheckCluster:
 
     def __init__(self, nodes=None):
         self._nodes = nodes
-
 
     def check(self, quiet=False):
         if not quiet:
@@ -115,8 +133,7 @@ class CheckCluster:
         return open_slots
 
     def check_slots_coverage(self):
-        return self._nodes.covered_slots
-
+        return list(set(range(CLUSTER_HASH_SLOTS)) - self._nodes.covered_slots)
 
     def _check_slots_coverage(self):
         xprint(">>> Check slots coverage...")
@@ -134,4 +151,6 @@ class CheckCluster:
         return f"Node {node} has slots in {open_type} "\
                f"state {','.join(map(str, slots))}"
 
-        
+    def is_config_consistent(self):
+        return len(set(n.config_signature() for n in self._nodes)) == 1
+
