@@ -110,6 +110,7 @@ class CheckCluster:
             for open_type in [MIGRATING, IMPORTING]:
                 slots = getattr(node, open_type) 
                 if slots:
+                    xprint.warning(self._warn_opened_slot(node, open_type, slots.keys()))
                     opened_slots = opened_slots.union(set(slots.keys()))
         return opened_slots
 

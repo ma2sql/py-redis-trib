@@ -4,9 +4,6 @@ from redis_trib.trib import RedisTrib
 from copy import deepcopy
 from . import fixture
 
-## TODOs
-# - open slot에 대한 판단 검증
-
 
 class TestCheckCluster(unittest.TestCase):
 
@@ -32,7 +29,9 @@ class TestCheckCluster(unittest.TestCase):
 
     def testConfigConsistency(self):
         self.assertEqual(self._nodes[0].config_signature(),
-                         'abc:0-5460|def:5461-10922|ghi:10923-16383')
+                         '2bd45a5a7ec0b5cb316d2e9073bb84c7ba81eea3:5461-10922|'\
+                         '54b3cd517c7ce508630b9c9366cd4da19681fee7:0-5460|'\
+                         '91d5f362ba127c8e0aba925f8e005f8b08054042:10923-16383')
        
     def testSlotCoverage(self):
         self.assertListEqual(self._check_cluster.check_slots_coverage(), [])
