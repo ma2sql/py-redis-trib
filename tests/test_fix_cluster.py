@@ -5,7 +5,7 @@ from copy import deepcopy
 from . import fixture
 
 
-class TestCheckCluster(unittest.TestCase):
+class TestFixCluster(unittest.TestCase):
 
     def setUp(self):
         def _make_mynode(nodes, idx):

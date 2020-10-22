@@ -1,109 +1,44 @@
 import unittest
-from unittest.mock import patch
+from redis_trib.mixins.check_cluster import Node, Nodes, CheckCluster
+from redis_trib.trib import RedisTrib
+from copy import deepcopy
+from . import fixture
 
-from redis_trib import (
-    RedisTrib,
-    ClusterNode,
-    TooSmallMastersError,
-)
 
-import redis
-from itertools import chain
-from more_itertools import flatten
+class TestCheckCluster(unittest.TestCase):
 
-'''
-## TODOs
-- Implement alloc_slots
-	[v] ClusterNode
-		- add_slots
-	[v] Initialize ClusterNode
-	[v] Calculate slots per node
-	[ ] Divide master and replicas
-'''
-
-class TestCreateCluster(unittest.TestCase):
     def setUp(self):
-        self._node_addrs = [
-            '192.168.56.101:7000',
-            '192.168.56.102:7000',
-            '192.168.56.103:7000',
-            '192.168.56.104:7000',
-            '192.168.56.105:7000',
-            '192.168.56.106:7000',
-        ]
+        def _make_mynode(nodes, idx):
+            new_nodes = deepcopy(nodes)
+            mynode = new_nodes[idx]
+            mynode['flags'] = f"myself,{mynode['flags']}"
+            return new_nodes
 
-        self._node_addrs_with_slaves = [
-            '192.168.56.101:7000,192.168.56.101:7001',
-            '192.168.56.102:7000,192.168.56.102:7001',
-            '192.168.56.103:7000,192.168.56.103:7001',
-            '192.168.56.104:7000,192.168.56.104:7001',
-            '192.168.56.105:7000,192.168.56.105:7001',
-            '192.168.56.106:7000,192.168.56.106:7001',
-        ]
+        default_nodes_info = fixture.cluster_nodes()
+        self._nodes = []
+        for i, _ in enumerate(default_nodes_info):
+            mynodes =  _make_mynode(default_nodes_info, i)
+            self._nodes.append(Node(mynodes[i]['addr'], mynodes[i], mynodes[:i] + mynodes[i+1:]))
 
-    def test_connect_to_all_redis(self):
-        redis_trib = RedisTrib(self._node_addrs_with_slaves)
-        redis_trib._distribute_roles()
-        patch('redis.StrictRedis')
-        with patch.object(ClusterNode, 'connect') as f:
-            redis_trib._connect_to_nodes()
-            self.assertEqual(f.call_count, len(redis_trib._nodes))
-
-    def test_alloc_slots(self):
-        redis_trib = RedisTrib(self._node_addrs)
-        redis_trib._distribute_roles()
-        redis_trib._alloc_slots()
-        self.assertListEqual(list(flatten(m.slots for m in redis_trib._masters)),
-                             list(range(0, 16384)))
+        self._check_cluster = CheckCluster(Nodes(self._nodes))
 
 
-    def test_distribute_roles(self):
-        redis_trib = RedisTrib(self._node_addrs_with_slaves)
-        redis_trib._distribute_roles()
+    def testCheckOpenSlots(self):
+        self.assertSetEqual(self._check_cluster.check_open_slots(), {1})
 
-        all_nodes_addrs = sum([addr.split(',') for addr in self._node_addrs_with_slaves], [])
-        self.assertListEqual(
-            [n.addr for n in redis_trib._nodes], all_nodes_addrs)
 
-    def test_check_parameters(self):
-        redis_trib = RedisTrib(self._node_addrs_with_slaves)
-        with self.assertRaises(TooSmallMastersError):
-            redis_trib._check_parameters()
+    def testConfigConsistency(self):
+        self.assertEqual(self._nodes[0].config_signature(),
+                         '2bd45a5a7ec0b5cb316d2e9073bb84c7ba81eea3:5461-10922|'\
+                         '54b3cd517c7ce508630b9c9366cd4da19681fee7:0-5460|'\
+                         '91d5f362ba127c8e0aba925f8e005f8b08054042:10923-16383')
+       
+    def testSlotCoverage(self):
+        self.assertListEqual(self._check_cluster.check_slots_coverage(), [])
 
-        redis_trib._distribute_roles()
-        redis_trib._check_parameters()
-
-    def test_flush_nodes_config(self):
-        redis_trib = RedisTrib(self._node_addrs_with_slaves)
-        redis_trib._distribute_roles()
-        with patch.object(ClusterNode, 'flush_node_config') as f:
-            redis_trib._flush_nodes_config()
-            self.assertEqual(f.call_count, len(redis_trib._nodes))
-
-    def test_assign_config_epoch(self):
-        redis_trib = RedisTrib(self._node_addrs_with_slaves)
-        redis_trib._distribute_roles()
-        with patch.object(ClusterNode, 'assign_config_epoch') as f:
-            redis_trib._assign_config_epoch()
-            self.assertEqual(f.call_count, len(redis_trib._masters))
-
-    def test_join_cluster(self):
-        redis_trib = RedisTrib(self._node_addrs_with_slaves)
-        redis_trib._distribute_roles()
-        with patch.object(ClusterNode, 'cluster_meet') as f:
-            redis_trib._join_cluster()
-            self.assertEqual(f.call_count, len(redis_trib._nodes) - 1)
-
-    def test_config_consistent(self):
-        redis_trib = RedisTrib(self._node_addrs_with_slaves)
-        redis_trib._distribute_roles()
-        with patch.object(ClusterNode, 'get_config_signature') as f:
-            redis_trib._is_config_consistent()
-            self.assertEqual(f.call_count, len(redis_trib._nodes))
+    def testSignatureConsistency(self):
+        self.assertTrue(self._check_cluster.is_config_consistent())
 
     def tearDown(self):
         pass
 
-
-if __name__ == '__main__':
-    unittest.main()
