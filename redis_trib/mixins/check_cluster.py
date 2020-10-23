@@ -80,6 +80,15 @@ class Nodes:
         for node in self._nodes:
             yield node
 
+    def __eq__(self, _nodes):
+        return self._nodes == _nodes
+
+    @property
+    def masters(self):
+        for node in self._nodes:
+            if 'master' in node['flags'].split(','):
+                yield node
+
 
 IMPORTING = 'importing'
 MIGRATING = 'migrating'
@@ -154,4 +163,13 @@ class CheckCluster:
 
     def is_config_consistent(self):
         return len(set(n.config_signature() for n in self._nodes)) == 1
+
+
+class FixCluster:
+
+    def __init__(self, nodes):
+        self._nodes = nodes
+
+    def fix_open_slot(self, slot):
+        return self._nodes, slot
 

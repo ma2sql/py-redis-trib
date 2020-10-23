@@ -1,5 +1,5 @@
 import unittest
-from redis_trib.mixins.check_cluster import Node, Nodes, CheckCluster
+from redis_trib.mixins.check_cluster import Node, Nodes, CheckCluster, FixCluster
 from redis_trib.trib import RedisTrib
 from copy import deepcopy
 from . import fixture
@@ -21,23 +21,12 @@ class TestFixCluster(unittest.TestCase):
             self._nodes.append(Node(mynodes[i]['addr'], mynodes[i], mynodes[:i] + mynodes[i+1:]))
 
         self._check_cluster = CheckCluster(Nodes(self._nodes))
+        self._fix_cluster = FixCluster(Nodes(self._nodes))
 
-
-    def testCheckOpenSlots(self):
-        self.assertSetEqual(self._check_cluster.check_open_slots(), {1})
-
-
-    def testConfigConsistency(self):
-        self.assertEqual(self._nodes[0].config_signature(),
-                         '2bd45a5a7ec0b5cb316d2e9073bb84c7ba81eea3:5461-10922|'\
-                         '54b3cd517c7ce508630b9c9366cd4da19681fee7:0-5460|'\
-                         '91d5f362ba127c8e0aba925f8e005f8b08054042:10923-16383')
-       
-    def testSlotCoverage(self):
-        self.assertListEqual(self._check_cluster.check_slots_coverage(), [])
-
-    def testSignatureConsistency(self):
-        self.assertTrue(self._check_cluster.is_config_consistent())
+    def testFixOpenSlot(self):
+        nodes, slot = self._fix_cluster.fix_open_slot(1)
+        self.assertEqual(slot, 1)
+        self.assertTrue(Nodes(self._nodes) == nodes)
 
     def tearDown(self):
         pass

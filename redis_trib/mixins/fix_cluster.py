@@ -145,10 +145,8 @@ class FixCluster:
         for n in self._get_masters():
             if n.slots.get(slot):
                 owners.append(n)
-            else:
-                not_visible_keys = n.cluster_count_keys_in_slot(slot)
-                if not_visible_keys:
-                    owners.append(n)
+            elif n.cluster_count_keys_in_slot(slot):
+                owners.append(n)
 
         # Try to obtain the current slot owner, according to the current
         # nodes configuration.
