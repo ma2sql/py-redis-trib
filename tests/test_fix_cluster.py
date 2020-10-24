@@ -28,6 +28,10 @@ class TestFixCluster(unittest.TestCase):
         self.assertEqual(slot, 1)
         self.assertTrue(Nodes(self._nodes) == nodes)
 
+    def testSlotOwners(self):
+        owners = self._fix_cluster._slot_owners(1)
+        self.assertListEqual(owners, [self._nodes[0]])
+
     def tearDown(self):
         pass
 

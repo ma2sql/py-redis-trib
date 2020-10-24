@@ -41,10 +41,6 @@ class Node:
         return self._node.get('node_id')
 
     @property
-    def slots(self):
-        return self._node.get('slots')
-
-    @property
     def migrating(self):
         return self._node.get('migrating')
 
@@ -59,12 +55,19 @@ class Node:
     @property
     def slots(self):
         return parse_slots(self._node['slots']) 
+
+    @property
+    def flags(self):
+        return self._node.get('flags').split(',')
    
     def config_signature(self):
         signature = []
         for n in [self._node] + self._friends:
             signature.append(f"{n['node_id']}:{summarize_slots(parse_slots(n['slots']))}")
         return '|'.join(sorted(signature))
+
+    def cluster_count_keys_in_slot(self, slot):
+        return None
             
 
 class Nodes:
@@ -85,8 +88,8 @@ class Nodes:
 
     @property
     def masters(self):
-        for node in self._nodes:
-            if 'master' in node['flags'].split(','):
+        for node in self:
+            if 'master' in node.flags:
                 yield node
 
 
@@ -173,3 +176,12 @@ class FixCluster:
     def fix_open_slot(self, slot):
         return self._nodes, slot
 
+    def _slot_owners(self, slot):
+        owners = []
+        for n in self._nodes.masters:
+            if slot in n.slots:
+                owners.append(n)
+            elif n.cluster_count_keys_in_slot(slot):
+                owners.append(n)
+
+        return owners
