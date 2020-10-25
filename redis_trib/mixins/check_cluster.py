@@ -42,11 +42,11 @@ class Node:
 
     @property
     def migrating(self):
-        return self._node.get('migrating')
+        return self._node.get('migrating') or {}
 
     @property
     def importing(self):
-        return self._node.get('importing')
+        return self._node.get('importing') or {}
 
     @property
     def friends(self):
@@ -65,10 +65,10 @@ class Node:
         for n in [self._node] + self._friends:
             signature.append(f"{n['node_id']}:{summarize_slots(parse_slots(n['slots']))}")
         return '|'.join(sorted(signature))
-
-    def cluster_count_keys_in_slot(self, slot):
-        return None
             
+    def cluster_count_keys_in_slot(self, slot):
+        return 0
+
 
 class Nodes:
     def __init__(self, nodes):
@@ -185,3 +185,18 @@ class FixCluster:
                 owners.append(n)
 
         return owners
+
+    def moving_slots(self, slot, owner):
+        migrating = []
+        importing = []
+
+        for n in self._nodes.masters:
+            if n.migrating.get(slot):
+                migrating.append(n)
+            elif n.importing.get(slot):
+                importing.append(n)
+            elif n != owner and n.cluster_count_keys_in_slot(slot) > 0:
+                importing.append(n)
+
+        return migrating, importing
+

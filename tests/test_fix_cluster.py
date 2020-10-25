@@ -32,6 +32,11 @@ class TestFixCluster(unittest.TestCase):
         owners = self._fix_cluster._slot_owners(1)
         self.assertListEqual(owners, [self._nodes[0]])
 
+    def testMovingSlots(self):
+        migrating, importing = self._fix_cluster.moving_slots(1, None)
+        self.assertDictEqual(migrating[0].migrating, {1: '2bd45a5a7ec0b5cb316d2e9073bb84c7ba81eea3'})
+        self.assertDictEqual(importing[0].importing, {1: '54b3cd517c7ce508630b9c9366cd4da19681fee7'})
+
     def tearDown(self):
         pass
 
