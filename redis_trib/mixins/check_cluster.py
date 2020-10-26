@@ -200,3 +200,24 @@ class FixCluster:
 
         return migrating, importing
 
+
+    def fix_open_slot_strategy(self, owners):
+        if not owners:
+            return FixOpenSlotNoOwner
+        return FixOpenSlotMultipleOwner
+
+
+class FixOpenSlot:
+    def __init__(self):
+        pass
+
+
+class FixOpenSlotNoOwner(FixOpenSlot):
+    def __init__(self):
+        super().__init__(self)
+
+
+class FixOpenSlotMultipleOwner(FixOpenSlot):
+    def __init__(self):
+        super().__init__(self)
+    

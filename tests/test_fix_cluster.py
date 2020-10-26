@@ -1,5 +1,8 @@
 import unittest
-from redis_trib.mixins.check_cluster import Node, Nodes, CheckCluster, FixCluster
+from redis_trib.mixins.check_cluster import (
+    Node, Nodes, CheckCluster, FixCluster, FixOpenSlot, 
+    FixOpenSlotNoOwner, FixOpenSlotMultipleOwner
+)
 from redis_trib.trib import RedisTrib
 from copy import deepcopy
 from . import fixture
@@ -36,6 +39,13 @@ class TestFixCluster(unittest.TestCase):
         migrating, importing = self._fix_cluster.moving_slots(1, None)
         self.assertDictEqual(migrating[0].migrating, {1: '2bd45a5a7ec0b5cb316d2e9073bb84c7ba81eea3'})
         self.assertDictEqual(importing[0].importing, {1: '54b3cd517c7ce508630b9c9366cd4da19681fee7'})
+
+    def testSlotOwnerStrategy(self):
+        no_owner_strategy = self._fix_cluster.fix_open_slot_strategy([])
+        self.assertIs(no_owner_strategy, FixOpenSlotNoOwner)
+
+        multiple_owner_strategy = self._fix_cluster.fix_open_slot_strategy(self._nodes[:2])
+        self.assertIs(multiple_owner_strategy, FixOpenSlotMultipleOwner)
 
     def tearDown(self):
         pass
