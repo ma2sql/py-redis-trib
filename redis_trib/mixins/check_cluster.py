@@ -211,6 +211,20 @@ class FixOpenSlot:
     def __init__(self):
         pass
 
+    def get_node_with_most_keys_in_slot(self, nodes, slot):
+        best = None
+        best_numkeys = 0
+
+        for n in nodes:
+            numkeys = n.cluster_count_keys_in_slot(slot)
+            if numkeys > best_numkeys or best is None:
+                numkeys = n.cluster_count_keys_in_slot(slot)
+                best = n
+                best_numkeys = numkeys
+
+        return best
+        
+
 
 class FixOpenSlotNoOwner(FixOpenSlot):
     def __init__(self):

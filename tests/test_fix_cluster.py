@@ -47,6 +47,10 @@ class TestFixCluster(unittest.TestCase):
         multiple_owner_strategy = self._fix_cluster.fix_open_slot_strategy(self._nodes[:2])
         self.assertIs(multiple_owner_strategy, FixOpenSlotMultipleOwner)
 
+    def testNodeWithMostKeysInSlot(self):
+        fix_open_slot = FixOpenSlot()
+        self.assertEqual(fix_open_slot.get_node_with_most_keys_in_slot(self._nodes, 1), self._nodes[0])
+
     def tearDown(self):
         pass
 
