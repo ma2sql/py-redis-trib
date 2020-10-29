@@ -227,8 +227,49 @@ class FixOpenSlot:
 
 
 class FixOpenSlotNoOwner(FixOpenSlot):
-    def __init__(self):
+    def __init__(self, nodes, fix_cluster, slot):
         super().__init__(self)
+        self._nodes = nodes
+        self._fix_cluster = fix_cluster
+        self._slot = slot
+
+    def fix(self):
+        owner = self._get_node_with_most_keys_in_slot(self._nodes.get_masters(), slot)
+        xprint(">>> Nobody claims ownership, selecting an owner...")
+        owner = self._get_node_with_most_keys_in_slot(self._get_masters(), slot)
+
+        # If we still don't have an owner, we can't fix it.
+        if not owner:
+            xprint("[ERR] Can't select a slot owner. Impossible to fix.")
+            # exit 1
+
+        # Use ADDSLOTS to assign the slot.
+        print(f"*** Configuring {owner} as the slot owner")
+
+        # clear
+        owner.cluster_setslot_stable(slot)
+
+        with r.pipeline(transaction=True) as t:
+            t.cluster('DELSLOTS', slot)
+            t.cluster('ADDSLOTS', slot)
+            t.cluster('SETSLOT', slot, 'STABLE')
+            t.cluster('BUMPEPOCH')
+            results = t.execute(raise_on_error=False)
+       
+        delslot_err, *remain_err = results
+        if isinstance(delslot_err, redis.ResponseError):
+            if not str(delslot_err).endswith('already unassigned'):
+                raise BaseException('ERROR!')
+        if any(isinstance(err, redis.ResponseError) for err in remain_err):
+            raise BaseException('ERROR!')
+
+        owner.add_slots(slot, new=False)
+        owner.cluster_bumpepoch()
+        # Remove the owner from the list of migrating/importing
+        # nodes.
+        migrating.remove(owner)
+        importing.remove(owner)
+
 
 
 class FixOpenSlotMultipleOwner(FixOpenSlot):
