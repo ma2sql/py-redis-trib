@@ -233,18 +233,21 @@ class FixOpenSlotNoOwner(FixOpenSlot):
         self._fix_cluster = fix_cluster
         self._slot = slot
 
+    def _get_owner(self):
+        owner = self._get_node_with_most_keys_in_slot(
+                    self._nodes.get_masters(), self._slot)
+
     def fix(self):
-        owner = self._get_node_with_most_keys_in_slot(self._nodes.get_masters(), slot)
-        xprint(">>> Nobody claims ownership, selecting an owner...")
-        owner = self._get_node_with_most_keys_in_slot(self._get_masters(), slot)
-
-        # If we still don't have an owner, we can't fix it.
+        # owners 구하기
+        # owner is None ?
+        # 1) owners가 0일 때,
+        # 2) owners가 2 이상일 때
+        # 즉, owners가 1이 아닐 때
+        owner = self._get_owner()
         if not owner:
-            xprint("[ERR] Can't select a slot owner. Impossible to fix.")
-            # exit 1
+            raise FixOpenSlotError("[ERR] Can't select a slot owner. Impossible to fix.")
 
-        # Use ADDSLOTS to assign the slot.
-        print(f"*** Configuring {owner} as the slot owner")
+        xprint(f"*** Configuring {owner} as the slot owner")
 
         # clear
         owner.cluster_setslot_stable(slot)
