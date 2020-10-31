@@ -172,36 +172,49 @@ class FixCluster:
 
     def __init__(self, nodes):
         self._nodes = nodes
+        self._owner = None
+        self._owners = []
+        self._migrating = []
+        self._importing = []
 
     def fix_open_slot(self, slot):
+        self.set_slot_owners(slot)
+        
         return self._nodes, slot
 
-    def _slot_owners(self, slot):
-        owners = []
+
+    def set_owner_candidates(self):
+        self._owners = []
         for n in self._nodes.masters:
             if slot in n.slots:
-                owners.append(n)
+                self._owners.append(n)
             elif n.cluster_count_keys_in_slot(slot):
-                owners.append(n)
+                self._owners.append(n)
 
-        return owners
+    def elect_owner(self):
+        if len(self._owners) == 1:
+            return self._owners[0]
+        return None
 
     def moving_slots(self, slot, owner):
-        migrating = []
-        importing = []
+        self._migrating = []
+        self._importing = []
 
         for n in self._nodes.masters:
             if n.migrating.get(slot):
-                migrating.append(n)
+                self._migrating.append(n)
             elif n.importing.get(slot):
-                importing.append(n)
+                self._importing.append(n)
             elif n != owner and n.cluster_count_keys_in_slot(slot) > 0:
-                importing.append(n)
-
-        return migrating, importing
+                self._importing.append(n)
 
 
     def fix_open_slot_strategy(self, owners):
+        # owners 구하기
+        # owner is None ?
+        # 1) owners가 0일 때,
+        # 2) owners가 2 이상일 때
+        # 즉, owners가 1이 아닐 때
         if not owners:
             return FixOpenSlotNoOwner
         return FixOpenSlotMultipleOwner
@@ -238,11 +251,6 @@ class FixOpenSlotNoOwner(FixOpenSlot):
                     self._nodes.get_masters(), self._slot)
 
     def fix(self):
-        # owners 구하기
-        # owner is None ?
-        # 1) owners가 0일 때,
-        # 2) owners가 2 이상일 때
-        # 즉, owners가 1이 아닐 때
         owner = self._get_owner()
         if not owner:
             raise FixOpenSlotError("[ERR] Can't select a slot owner. Impossible to fix.")
