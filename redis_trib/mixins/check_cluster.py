@@ -69,6 +69,38 @@ class Node:
     def cluster_count_keys_in_slot(self, slot):
         return 0
 
+    def clear_slot(self, slot):
+        # CLUSTER SETSLOT __slot__ STABLE
+        pass
+
+    def set_slot_owner(self, slot):
+        '''
+        self._r.pipeline()\
+            .cluster('DELSLOTS', slot)\
+            .cluster('ADDSLOTS', slot)\
+            .cluster('BUMPEPOCH')\
+            .execute() 
+        '''
+
+    def cluster_bumpepoch(self):
+        '''
+        CLUSTER BUMPEPOCH
+        '''
+
+    def cluster_setslot_stable(self, slot):
+        pass
+
+    def cluster_setslot_node(self, slot, owner):
+        pass
+
+    def cluster_setslot_migrating(self, slot, target):
+        pass
+ 
+    def cluster_setslot_importing(self, slot, source):
+        pass
+
+    def cluster_delslots(self, slots):
+        pass
 
 class Nodes:
     def __init__(self, nodes):
@@ -167,20 +199,98 @@ class CheckCluster:
     def is_config_consistent(self):
         return len(set(n.config_signature() for n in self._nodes)) == 1
 
+class MoveSlot:
+    def __init__(self, src, dst, slot):
+        self._src = src
+        self._dst = dst
+        self._slot = slot
+
+    def move_slot(self):
+        return self
+
+    def moving(self):
+        return self
+
+    def update(self):
+        return self
+
+    def notify(self):
+        return self
+
 
 class FixCluster:
 
     def __init__(self, nodes):
+        self._nodes = nodes
+
+
+class FixOpenSlot:
+    def __init__(self, nodes, slot):
         self._nodes = nodes
         self._owner = None
         self._owners = []
         self._migrating = []
         self._importing = []
 
+
+    def get_node_with_most_keys_in_slot(self, nodes, slot):
+        best = None
+        best_numkeys = 0
+
+        for n in nodes:
+            numkeys = n.cluster_count_keys_in_slot(slot)
+            if numkeys > best_numkeys or best is None:
+                numkeys = n.cluster_count_keys_in_slot(slot)
+                best = n
+                best_numkeys = numkeys
+
+        return best
+
+
     def fix_open_slot(self, slot):
         self.set_slot_owners(slot)
-        
-        return self._nodes, slot
+        owner = self.elect_owner()
+        self.change_owner_to_donor()
+
+        if (len(self._migrating) == 1
+            and len(self._importing) == 1):
+            src = self._migrating[0]
+            dst = self._importing[0]
+            move_slot(src, dst, slot, update=True)
+        elif (len(self._migrating) == 0
+              and len(self._importing) > 0):
+            for n in self._importing:
+                if n == owner:
+                    continue
+                move_slot(n, owner, slot, cold=True)
+                n.clear_slot(slot)
+                m = MoveSlot(n, owner, slot)
+                m.move_slot()
+        elif (len(self._migrating) == 1
+              and len(self._importing) > 1):
+            src = self._migrating[0]
+            dst = None
+            target_id = src.migrating['id']
+            for n in self._importing:
+                if n.cluster_count_keys_in_slot(slot) > 0:
+                    raise BaseException()
+                if target_id == n.node_id:
+                    dst = n
+            if dst:
+                move_slot(src, dst, slot)
+                for n in self._importing:
+                    if n == dst:
+                        continue
+                    n.clear_slot(slot)
+            else:
+                src.clear_slot(slot)
+                for n in self._importing:
+                    n.clear_slot(n)
+            
+
+
+
+
 
 
     def set_owner_candidates(self):
@@ -192,9 +302,26 @@ class FixCluster:
                 self._owners.append(n)
 
     def elect_owner(self):
-        if len(self._owners) == 1:
-            return self._owners[0]
-        return None
+        owner = self._get_node_with_most_keys_in_slot(self._nodes, slot)
+        owner.clear_slot(slot)
+        owner.set_slot_owner(slot)
+        owner.add_slots(slot)
+        owner.cluster_bumpepoch()
+        self._importing = [n for n in self._importing if n != owner]
+        self._migrating = [n for n in self._migrating if n != owner]
+
+    def change_owner_to_donor(self):
+        if self._owner is None:
+            raise BaseException('No owner')
+        for n in self._owners:
+            if n == self._owner:
+                continue
+            n.del_slots(slot)
+            n.cluster_setslot_stable(slot)
+            n.cluster_setslot_importing(slot, owner)
+            self._importing = [_n for _n in self._importing if _n != n] 
+            self._importing.append(n)
+            self._migrating = [_n for _n in self._migrating if _n != n]
 
     def moving_slots(self, slot, owner):
         self._migrating = []
